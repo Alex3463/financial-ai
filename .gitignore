@@ -9,3 +9,6 @@ api_guide/.env
 api_guide/llm_credentials.txt
 .venv/
 venv/
+
+# gh CLI local auth cache
+.ghconfig/
