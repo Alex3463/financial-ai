@@ -1,0 +1,11 @@
+artifacts/
+reports/
+tracking/
+logs/
+__pycache__/
+*.pyc
+.env
+api_guide/.env
+api_guide/llm_credentials.txt
+.venv/
+venv/

@@ -1,0 +1,31 @@
+llm:
+  provider: "openai"
+  # 게이트웨이 GET /v1/gateway/models/ 목록 중, 본 키로 접근 가능한 모델을 쓰세요.
+  # 예: gpt-5.4-mini, gpt-5.3-chat-latest, claude-sonnet-4-5-20250929 (claude-sonnet-4-6 는 미지원 시 403)
+  model: "gpt-5.4-mini"
+  temperature: 0.2
+  max_tokens: 4096
+  base_url: "https://factchat-cloud.mindlogic.ai/v1/gateway"
+  api_key_env: "OPENAI_API_KEY"
+  # 키는 env로만 받습니다. 아래 중 하나로 설정하세요.
+  # - financial-ai/.env
+  # - financial-ai/api_guide/.env
+  api_key_file: null
+
+ingest:
+  price_period: "1y"
+  news_count: 10
+  retry_attempts: 3
+  sleep_between_tickers: 1
+
+eval:
+  # true 시 리포트 생성 후 LLM Judge로 6항목(만점 80) + 규칙 3항목(25) + 페널티 → 100점 스케일
+  use_llm_judge: true
+  judge_max_tokens: 2500
+  judge_temperature: 0.15
+
+paths:
+  artifacts: "artifacts"
+  reports: "reports"
+  tracking: "tracking"
+  prompts: "prompts"
