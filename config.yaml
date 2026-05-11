@@ -2,9 +2,9 @@ llm:
   provider: "openai"
   # 게이트웨이 GET /v1/gateway/models/ 목록 중, 본 키로 접근 가능한 모델을 쓰세요.
   # 예: gpt-5.4-mini, gpt-5.3-chat-latest, claude-sonnet-4-5-20250929 (claude-sonnet-4-6 는 미지원 시 403)
-  model: "gpt-5.4-mini"
+  model: "gpt-5.4-nano"
   temperature: 0.2
-  max_tokens: 4096
+  max_tokens: 8196
   base_url: "https://factchat-cloud.mindlogic.ai/v1/gateway"
   api_key_env: "OPENAI_API_KEY"
   # 키는 env로만 받습니다. 아래 중 하나로 설정하세요.
