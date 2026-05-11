@@ -38,6 +38,11 @@ class ComposerAgentFormattingTests(unittest.TestCase):
                 eps=8.27,
                 target_price=293.33,
                 target_price_downside=253.0,
+                stop_loss_price=270.0,
+                target_upside_pct=8.6,
+                stop_loss_downside_pct=-8.0,
+                target_price_basis="LLM 판단: PER와 컨센서스 평균을 함께 참고",
+                stop_loss_basis="리스크 관리 기준: 20일 지지선과 ATR 하단 참고",
                 formula_text="목표가 = (적용 PER 35.46) × (TTM EPS 8.27) = 293.33달러",
                 horizon="12개월",
                 rationale_bullets=["a", "b", "c"],
@@ -122,6 +127,15 @@ class ComposerAgentFormattingTests(unittest.TestCase):
                 "price_technicals": {"rsi_14": 55.0},
                 "cashflow_summary": {"free_cash_flow": 10.0},
                 "consensus_summary": {"target_mean_price": 210.0},
+                "market_context": {
+                    "vix": {
+                        "ticker": "^VIX",
+                        "current": 18.5,
+                        "reference_date": "2026-05-11",
+                        "return_1m": 7.2,
+                        "regime": "보통",
+                    }
+                },
             }
         )
 
@@ -133,6 +147,8 @@ class ComposerAgentFormattingTests(unittest.TestCase):
         self.assertIn("price and momentum", prompt_input)
         self.assertIn("cash-flow quality", prompt_input)
         self.assertIn("analyst view", prompt_input)
+        self.assertIn("VIX market volatility", prompt_input)
+        self.assertIn("stop-loss", prompt_input)
 
     def test_polish_report_markdown_replaces_schema_label_with_human_label(self) -> None:
         report = (

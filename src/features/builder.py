@@ -10,8 +10,11 @@ class FeatureBuilder:
     def build(self, snapshot: dict[str, Any]) -> dict[str, Any]:
         monthly = snapshot["price"]["monthly_close"]
         daily = snapshot["price"]["daily_close"]
+        daily_high = snapshot["price"].get("daily_high", {})
+        daily_low = snapshot["price"].get("daily_low", {})
         daily_volume = snapshot["price"].get("daily_volume", {})
         benchmark_daily = snapshot["price"].get("benchmark_daily_close", {})
+        vix_daily = snapshot["price"].get("vix_daily_close", {})
         info = snapshot["info"]
         income = snapshot["financials"]["income_stmt"]
         price = snapshot["price"]
@@ -24,6 +27,8 @@ class FeatureBuilder:
         vol = self._annualized_vol(daily)
         technicals = self._compute_price_technicals(
             daily,
+            daily_high=daily_high,
+            daily_low=daily_low,
             current_price=price.get("current"),
             high_52w=price.get("52w_high"),
             low_52w=price.get("52w_low"),
@@ -34,6 +39,8 @@ class FeatureBuilder:
             daily,
             benchmark_daily,
             benchmark_ticker=price.get("benchmark_ticker"),
+            vix_daily_close=vix_daily,
+            vix_ticker=price.get("vix_ticker"),
         )
 
         out = {
@@ -174,8 +181,13 @@ class FeatureBuilder:
         benchmark_daily_close: dict[str, float],
         *,
         benchmark_ticker: str | None,
+        vix_daily_close: dict[str, float] | None = None,
+        vix_ticker: str | None = None,
     ) -> dict[str, Any]:
-        out: dict[str, Any] = {"benchmark_ticker": benchmark_ticker}
+        out: dict[str, Any] = {
+            "benchmark_ticker": benchmark_ticker,
+            "vix": self._compute_vix_context(vix_daily_close or {}, vix_ticker=vix_ticker),
+        }
         windows = {
             "1m": 21,
             "3m": 63,
@@ -193,6 +205,48 @@ class FeatureBuilder:
                 else None
             )
         return out
+
+    def _compute_vix_context(
+        self,
+        vix_daily_close: dict[str, float],
+        *,
+        vix_ticker: str | None,
+    ) -> dict[str, Any]:
+        source = f"yf.history({vix_ticker or '^VIX'}).Close"
+        items = sorted(
+            (date, value)
+            for date, value in vix_daily_close.items()
+            if value is not None
+        )
+        if not items:
+            return {
+                "ticker": vix_ticker,
+                "current": None,
+                "reference_date": None,
+                "return_1m": None,
+                "regime": "데이터 미제공",
+                "source": source,
+            }
+
+        reference_date, current = items[-1]
+        current_f = float(current)
+        return {
+            "ticker": vix_ticker,
+            "current": round(current_f, 2),
+            "reference_date": reference_date,
+            "return_1m": self._trading_day_return(dict(items), 21),
+            "regime": self._vix_regime(current_f),
+            "source": source,
+        }
+
+    def _vix_regime(self, current: float) -> str:
+        if current < 15:
+            return "낮음"
+        if current < 20:
+            return "보통"
+        if current < 30:
+            return "상승"
+        return "스트레스"
 
     def _trading_day_return(self, closes: dict[str, float], trading_days: int) -> float | None:
         vals = [v for _, v in sorted(closes.items(), key=lambda x: x[0]) if v is not None]
@@ -225,6 +279,8 @@ class FeatureBuilder:
         self,
         daily: dict[str, float],
         *,
+        daily_high: dict[str, float] | None = None,
+        daily_low: dict[str, float] | None = None,
         current_price: float | None,
         high_52w: float | None,
         low_52w: float | None,
@@ -236,6 +292,9 @@ class FeatureBuilder:
                 "ma_50": None,
                 "ma_200": None,
                 "rsi_14": None,
+                "atr_14": None,
+                "atr_stop_loss_candidate": None,
+                "support_stop_loss_candidate": None,
                 "pct_from_52w_high": None,
                 "pct_above_52w_low": None,
                 "range_position_pct": None,
@@ -257,6 +316,7 @@ class FeatureBuilder:
         ma_50 = moving_average(50)
         ma_200 = moving_average(200)
         rsi_14 = self._rsi(closes, window=14)
+        atr_14 = self._atr(daily, daily_high or {}, daily_low or {}, window=14)
 
         def pct_distance(base: float | None) -> float | None:
             if current_price in (None, 0) or base in (None, 0):
@@ -288,6 +348,14 @@ class FeatureBuilder:
             "ma_50": ma_50,
             "ma_200": ma_200,
             "rsi_14": rsi_14,
+            "atr_14": atr_14,
+            "atr_stop_loss_candidate": self._atr_stop_loss_candidate(
+                current_price,
+                atr_14,
+            ),
+            "support_stop_loss_candidate": self._support_stop_loss_candidate(
+                daily_low or {},
+            ),
             "pct_from_52w_high": pct_distance(high_52w),
             "pct_above_52w_low": pct_distance(low_52w),
             "range_position_pct": range_position,
@@ -296,6 +364,64 @@ class FeatureBuilder:
             "distance_to_ma_200_pct": pct_distance(ma_200),
             "returns": dict(returns),
         }
+
+    def _atr(
+        self,
+        daily_close: dict[str, float],
+        daily_high: dict[str, float],
+        daily_low: dict[str, float],
+        *,
+        window: int,
+    ) -> float | None:
+        dates = sorted(daily_close.keys())
+        true_ranges: list[float] = []
+        prev_close: float | None = None
+        for date in dates:
+            close = daily_close.get(date)
+            high = daily_high.get(date)
+            low = daily_low.get(date)
+            if close is None or high is None or low is None:
+                continue
+            try:
+                high_f = float(high)
+                low_f = float(low)
+                close_f = float(close)
+            except (TypeError, ValueError):
+                continue
+            if prev_close is None:
+                true_range = high_f - low_f
+            else:
+                true_range = max(
+                    high_f - low_f,
+                    abs(high_f - prev_close),
+                    abs(low_f - prev_close),
+                )
+            true_ranges.append(true_range)
+            prev_close = close_f
+        if len(true_ranges) < window:
+            return None
+        return round(float(np.mean(np.array(true_ranges[-window:], dtype=float))), 2)
+
+    def _atr_stop_loss_candidate(
+        self,
+        current_price: float | None,
+        atr_14: float | None,
+    ) -> float | None:
+        if current_price in (None, 0) or atr_14 in (None, 0):
+            return None
+        try:
+            return round(float(current_price) - float(atr_14) * 2, 2)
+        except (TypeError, ValueError):
+            return None
+
+    def _support_stop_loss_candidate(self, daily_low: dict[str, float]) -> float | None:
+        lows = [float(v) for _, v in sorted(daily_low.items(), key=lambda x: x[0]) if v is not None]
+        if not lows:
+            return None
+        recent_lows = lows[-20:]
+        if not recent_lows:
+            return None
+        return round(min(recent_lows) * 0.98, 2)
 
     def _rsi(self, closes: np.ndarray, *, window: int) -> float | None:
         if len(closes) <= window:

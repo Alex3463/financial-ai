@@ -14,6 +14,7 @@ _INTERNAL_SOURCE_TOKENS = (
     "cashflow_summary",
     "consensus_summary",
     "financials.health",
+    "market_context",
 )
 
 
@@ -78,6 +79,7 @@ def _build_report_payload(composer_input: ComposerInput) -> dict[str, object]:
         "price and momentum": raw.get("price_technicals", {}),
         "volume trading": raw.get("volume_summary", {}),
         "benchmark comparison": raw.get("market_context", {}),
+        "VIX market volatility": (raw.get("market_context", {}) or {}).get("vix", {}),
         "ownership and holders": raw.get("holder_summary", {}),
         "cash-flow quality": raw.get("cashflow_summary", {}),
         "analyst view": raw.get("consensus_summary", {}),
@@ -109,6 +111,8 @@ def _build_input(composer_input: ComposerInput) -> str:
         "- business profile: 회사 설명 1줄\n"
         "- price and volume indicators: 이동평균, RSI, 52주 위치, 수익률, 거래량 변동\n"
         "- benchmark comparison: 벤치마크 대비 초과/부진 수익률\n"
+        "- VIX market volatility: VIX 현재값, 1개월 변화, 시장 변동성 regime\n"
+        "- stop-loss: valuation analysis의 stop_loss_price와 stop_loss_basis를 리스크 관리 기준으로 사용\n"
         "- ownership and holders: 기관/펀드 보유자 상위 목록\n"
         "- cash-flow and quality indicators: OCF, FCF, CapEx, current ratio, 순현금/순차입금\n"
         "- analyst consensus: buy/hold/sell 분포, 목표가 범위, 평균 목표가 업사이드\n"

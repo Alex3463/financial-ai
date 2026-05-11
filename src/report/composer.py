@@ -144,6 +144,9 @@ class ContextBuilder:
             "ma_50": technicals.get("ma_50"),
             "ma_200": technicals.get("ma_200"),
             "rsi_14": technicals.get("rsi_14"),
+            "atr_14": technicals.get("atr_14"),
+            "atr_stop_loss_candidate": technicals.get("atr_stop_loss_candidate"),
+            "support_stop_loss_candidate": technicals.get("support_stop_loss_candidate"),
             "pct_from_52w_high": technicals.get("pct_from_52w_high"),
             "pct_above_52w_low": technicals.get("pct_above_52w_low"),
             "range_position_pct": technicals.get("range_position_pct"),
@@ -211,6 +214,17 @@ class ContextBuilder:
     def _market_context(self, features: dict[str, Any]) -> dict[str, Any]:
         market = dict(features.get("market_context", {}))
         market.setdefault("benchmark_ticker", None)
+        vix = market.get("vix")
+        if not isinstance(vix, dict):
+            vix = {}
+        market["vix"] = {
+            "ticker": vix.get("ticker"),
+            "current": vix.get("current"),
+            "reference_date": vix.get("reference_date"),
+            "return_1m": vix.get("return_1m"),
+            "regime": vix.get("regime") or "데이터 미제공",
+            "source": vix.get("source") or "yf.history(^VIX).Close",
+        }
         market["source"] = "yf.history.Close benchmark comparison"
         return market
 

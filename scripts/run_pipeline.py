@@ -92,12 +92,36 @@ def _stub_report(ticker: str, context: dict) -> str:
     meta = context.get("metadata", {})
     name = meta.get("company_name", ticker)
     per = context.get("valuation", {}).get("PER", "N/A")
+    price_summary = context.get("price_summary", {})
+    technicals = context.get("price_technicals", {})
+    consensus = context.get("consensus_summary", {})
+    market_context = context.get("market_context", {})
+    vix = market_context.get("vix", {}) if isinstance(market_context, dict) else {}
+    current_price = price_summary.get("current_price") or 200
+    target_price = consensus.get("target_mean_price") or round(float(current_price) * 1.05, 2)
+    stop_loss = (
+        technicals.get("atr_stop_loss_candidate")
+        or technicals.get("support_stop_loss_candidate")
+        or round(float(current_price) * 0.9, 2)
+    )
+    vix_text = (
+        f"VIX {vix.get('current')}, {vix.get('regime')} / {vix.get('reference_date')}"
+        if vix.get("current") is not None
+        else "VIX 데이터 미제공"
+    )
     return f"""# {ticker} ({name}) 투자 분석 리포트
 
 ### 1. 투자 요약
-- **투자 의견**: 중립
-- 목표가 $200 (PER 기반 단순 추정)
-- 투자 기간: 12개월
+| 항목 | 내용 |
+|---|---|
+| 투자 의견 | **투자 의견**: 중립 |
+| 현재가/기준일 | 현재가 {float(current_price):.2f} / {meta.get("market_reference_date", "")} |
+| 목표가 | 목표가 {float(target_price):.2f} (LLM 경로 생략, 컨센서스 또는 현재가 기반 스텁) |
+| 손절가 | 손절가 {float(stop_loss):.2f} (리스크 관리 기준) |
+| 투자 기간 | 12개월 |
+| VIX/시장 변동성 | {vix_text} |
+| 핵심 쟁점 | 밸류에이션과 단기 변동성 균형 |
+| 지금 봐야 할 이벤트 | 다음 실적 발표 |
 
 ### 2. 재무 현황
 - trailing PER 약 {per} [출처: yf.info.trailingPE, {meta.get("data_as_of", "")}]
@@ -110,12 +134,14 @@ def _stub_report(ticker: str, context: dict) -> str:
 - 경쟁 심화
 - 규제 강화
 - 금리 상승 시 멀티플 하락
+- VIX/시장 변동성 상승 시 리스크오프 수급으로 손절가 접근 가능
 
 ### 5. 밸류에이션
-- PER 배수 적용: 목표가 = EPS × PER 26 [출처: 단순 배수 가정]
+- PER 배수 적용: 목표가 = 현재가 {float(current_price):.2f} × 1.05 = {float(target_price):.2f} [출처: 단순 스텁 가정]
+- 현재가 {float(current_price):.2f}, 목표가 {float(target_price):.2f}, 손절가 {float(stop_loss):.2f}, VIX {vix.get("current", "데이터 미제공")} [출처: yf.history.Close, {meta.get("market_reference_date", "")}]
 
 ### 6. 투자 결론
-- 12개월 관점 중립. 멀티플 수축 시 하방 위험.
+- 현재가 {float(current_price):.2f}, 목표가 {float(target_price):.2f}, 손절가 {float(stop_loss):.2f}. 12개월 관점 중립. 멀티플 수축 또는 VIX 상승 시 하방 위험.
 """
 
 
@@ -124,6 +150,8 @@ def _effective_use_judge(cfg: dict, args: argparse.Namespace) -> bool:
         return False
     if getattr(args, "judge", False):
         return True
+    if getattr(args, "skip_llm", False):
+        return False
     return bool(cfg.get("eval", {}).get("use_llm_judge", False))
 
 

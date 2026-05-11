@@ -25,6 +25,11 @@ class ValuationOutput(StrictModel):
     eps: float | None = None
     target_price: float
     target_price_downside: float | None = None
+    stop_loss_price: float
+    target_upside_pct: float | None = None
+    stop_loss_downside_pct: float | None = None
+    target_price_basis: str
+    stop_loss_basis: str
     formula_text: str
     horizon: Literal["1개월", "3개월", "6개월", "12개월"]
     rationale_bullets: list[str] = Field(min_length=3, max_length=5)

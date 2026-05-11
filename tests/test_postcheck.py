@@ -18,8 +18,11 @@ VALID_REPORT = """# AAPL (Apple Inc.) 투자 분석 리포트
 | 항목 | 내용 |
 |---|---|
 | 투자 의견 | **투자 의견**: 중립 |
+| 현재가/기준일 | 현재가 200달러 / 2026-05-11 |
 | 목표가 | 목표가 210달러 |
+| 손절가 | 손절가 180달러 |
 | 기간 | 12개월 |
+| VIX/시장 변동성 | VIX 18.5, 보통 [출처: yf.history(^VIX).Close, 2026-05-11] |
 - 핵심 쟁점: 성장성과 밸류에이션 균형.
 - 지금 봐야 할 이벤트: 다음 실적 발표.
 
@@ -48,6 +51,8 @@ trailing PER 약 35.32 [출처: yf.info.trailingPE, 2026-05-11T14:14:19Z]
 ### 5. 밸류에이션
 - 목표가 = (기준 PER 35.32) × (TTM EPS 5.95) = 210달러
 - 현재가 200달러, 목표가 210달러, 하방 시나리오 180달러 [출처: yf.info.trailingPE, yf.info.trailingEps]
+- 손절가 180달러는 장기 가치판단이 아니라 리스크 관리 기준입니다 [출처: yf.history.High/Low/Close, 2026-05-11].
+- VIX 18.5는 시장 변동성이 보통 국면임을 시사합니다 [출처: yf.history(^VIX).Close, 2026-05-11].
 
 ### 6. 투자 결론
 | 투자자 | 전략 |
@@ -119,7 +124,26 @@ class PostcheckTests(unittest.TestCase):
             validate_report_contract(
                 no_growth_citation,
                 actual_per=35.32,
-                valuation_formula="목표가 =",
+                valuation_formula="목표가 = (기준 PER 35.32) × (TTM EPS 5.95) = 210달러",
+            )
+
+    def test_validate_report_contract_rejects_missing_stop_loss_or_vix(self) -> None:
+        no_stop_loss = VALID_REPORT.replace("손절가", "리스크 기준")
+
+        with self.assertRaisesRegex(ValueError, "stop-loss"):
+            validate_report_contract(
+                no_stop_loss,
+                actual_per=35.32,
+                valuation_formula="목표가 = (기준 PER 35.32) × (TTM EPS 5.95) = 210달러",
+            )
+
+        no_vix = VALID_REPORT.replace("VIX", "변동성지수")
+
+        with self.assertRaisesRegex(ValueError, "VIX"):
+            validate_report_contract(
+                no_vix,
+                actual_per=35.32,
+                valuation_formula="목표가 = (기준 PER 35.32) × (TTM EPS 5.95) = 210달러",
             )
 
 

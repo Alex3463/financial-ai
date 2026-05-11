@@ -74,6 +74,9 @@ class ReportContextTests(unittest.TestCase):
                 "ma_50": 96.0,
                 "ma_200": 90.0,
                 "rsi_14": 58.2,
+                "atr_14": 3.5,
+                "atr_stop_loss_candidate": 93.0,
+                "support_stop_loss_candidate": 91.0,
                 "pct_from_52w_high": -9.09,
                 "pct_above_52w_low": 11.11,
                 "range_position_pct": 50.0,
@@ -132,6 +135,13 @@ class ReportContextTests(unittest.TestCase):
             "benchmark_return_1m": 2.5,
             "stock_return_1m": 4.0,
             "excess_return_1m": 1.5,
+            "vix": {
+                "ticker": "^VIX",
+                "current": 18.5,
+                "reference_date": "2026-05-08",
+                "return_1m": 12.1,
+                "regime": "보통",
+            },
         }
 
         context = ContextBuilder().build(
@@ -149,8 +159,13 @@ class ReportContextTests(unittest.TestCase):
         self.assertEqual(context["news_summary"]["deep_read_status"]["deep_read_count"], 1)
         self.assertEqual(context["company_profile"]["website"], "https://apple.com")
         self.assertEqual(context["price_technicals"]["ma_20"], 98.0)
+        self.assertEqual(context["price_technicals"]["atr_14"], 3.5)
+        self.assertEqual(context["price_technicals"]["atr_stop_loss_candidate"], 93.0)
+        self.assertEqual(context["price_technicals"]["support_stop_loss_candidate"], 91.0)
         self.assertEqual(context["volume_summary"]["latest_volume"], 1500.0)
         self.assertEqual(context["market_context"]["benchmark_ticker"], "^GSPC")
+        self.assertEqual(context["market_context"]["vix"]["current"], 18.5)
+        self.assertEqual(context["market_context"]["vix"]["regime"], "보통")
         self.assertEqual(context["holder_summary"]["institutional_holders"][0]["holder"], "Example Capital")
         self.assertEqual(context["cashflow_summary"]["current_ratio"], 2.0)
         self.assertEqual(context["consensus_summary"]["buy_count"], 15)
@@ -191,6 +206,8 @@ class ReportContextTests(unittest.TestCase):
         self.assertEqual(context["volume_summary"]["latest_volume"], None)
         self.assertEqual(context["holder_summary"]["institutional_holders"], [])
         self.assertEqual(context["market_context"]["benchmark_ticker"], None)
+        self.assertEqual(context["market_context"]["vix"]["ticker"], None)
+        self.assertIsNone(context["market_context"]["vix"]["current"])
         self.assertIsNone(context["cashflow_summary"]["current_ratio"])
         self.assertEqual(context["company_profile"]["industry"], "Software")
 

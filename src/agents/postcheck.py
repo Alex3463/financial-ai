@@ -85,13 +85,21 @@ def _validate_extended_contract(
             )
 
     if valuation_formula:
+        if not re.search(r"\d", valuation_formula):
+            raise ValueError("Valuation formula must include numeric inputs.")
         formula_norm = _normalize_text(valuation_formula)
         report_norm = _normalize_text(report_md)
         if formula_norm not in report_norm:
             raise ValueError("Final report is missing the required valuation formula text.")
 
+    if not _has_labeled_number(report_md, "현재가"):
+        raise ValueError("Final report is missing current price text.")
     if not re.search(r"목표가[^\n]{0,80}[\$₩￦]?\s*[\d,.]+", report_md):
         raise ValueError("Final report is missing target price text.")
+    if not _has_labeled_number(report_md, "손절가"):
+        raise ValueError("Final report is missing stop-loss price text.")
+    if not re.search(r"\bVIX\b[^\n]{0,120}(?:\d|데이터\s*미제공)", report_md, re.I):
+        raise ValueError("Final report is missing VIX market volatility text.")
     if not re.search(r"(1개월|3개월|6개월|12개월)", report_md):
         raise ValueError("Final report is missing investment horizon text.")
 
@@ -121,6 +129,16 @@ def _extract_reported_per(report_md: str) -> float | None:
         if match:
             return float(match.group(1).replace(",", ""))
     return None
+
+
+def _has_labeled_number(report_md: str, label: str) -> bool:
+    escaped = re.escape(label)
+    label_then_number = rf"{escaped}[^\n]{{0,100}}[\$₩￦]?\s*[\d,.]+"
+    number_then_label = rf"[\$₩￦]?\s*[\d,.]+[^\n]{{0,40}}{escaped}"
+    return bool(
+        re.search(label_then_number, report_md, re.I)
+        or re.search(number_then_label, report_md, re.I)
+    )
 
 
 def _normalize_text(text: str) -> str:

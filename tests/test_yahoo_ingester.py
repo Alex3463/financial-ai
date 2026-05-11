@@ -71,6 +71,8 @@ class YahooIngesterTests(unittest.TestCase):
             None,
             benchmark_ticker="^GSPC",
             benchmark_daily_close={"2026-05-07": 5000.0, "2026-05-08": 5050.0},
+            vix_ticker="^VIX",
+            vix_daily_close={"2026-05-07": 18.0, "2026-05-08": 19.5},
             institutional_holders=institutional_holders,
             mutualfund_holders=None,
             major_holders=None,
@@ -78,8 +80,12 @@ class YahooIngesterTests(unittest.TestCase):
 
         self.assertEqual(snapshot["price"]["market_reference_date"], "2026-05-08")
         self.assertEqual(snapshot["price"]["daily_volume"]["2026-05-08"], 1_500_000.0)
+        self.assertEqual(snapshot["price"]["daily_high"]["2026-05-08"], 102.0)
+        self.assertEqual(snapshot["price"]["daily_low"]["2026-05-08"], 100.0)
         self.assertEqual(snapshot["price"]["benchmark_ticker"], "^GSPC")
         self.assertEqual(snapshot["price"]["benchmark_daily_close"]["2026-05-08"], 5050.0)
+        self.assertEqual(snapshot["price"]["vix_ticker"], "^VIX")
+        self.assertEqual(snapshot["price"]["vix_daily_close"]["2026-05-08"], 19.5)
         self.assertEqual(
             snapshot["holders"]["institutional_holders"][0]["holder"],
             "Example Capital",

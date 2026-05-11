@@ -207,6 +207,7 @@ class YahooIngester:
         period = ingest_cfg.get("price_period", "1y")
         news_count = int(ingest_cfg.get("news_count", 10))
         benchmark_ticker = ingest_cfg.get("benchmark_ticker") or _default_benchmark_ticker(ticker)
+        vix_ticker = ingest_cfg.get("vix_ticker", "^VIX")
 
         hist_daily = yf_obj.history(period=period)
         if hist_daily is None or hist_daily.empty:
@@ -223,6 +224,7 @@ class YahooIngester:
         mutualfund_holders = self._safe_frame_attr(yf_obj, "mutualfund_holders")
         major_holders = self._safe_frame_attr(yf_obj, "major_holders")
         benchmark_daily_close = self._fetch_benchmark_daily_close(benchmark_ticker, period)
+        vix_daily_close = self._fetch_benchmark_daily_close(vix_ticker, period)
 
         news_list = []
         try:
@@ -253,6 +255,8 @@ class YahooIngester:
             recs,
             benchmark_ticker=benchmark_ticker,
             benchmark_daily_close=benchmark_daily_close,
+            vix_ticker=vix_ticker,
+            vix_daily_close=vix_daily_close,
             institutional_holders=institutional_holders,
             mutualfund_holders=mutualfund_holders,
             major_holders=major_holders,
@@ -290,14 +294,18 @@ class YahooIngester:
         *,
         benchmark_ticker: str | None = None,
         benchmark_daily_close: dict[str, float] | None = None,
+        vix_ticker: str | None = None,
+        vix_daily_close: dict[str, float] | None = None,
         institutional_holders: pd.DataFrame | None = None,
         mutualfund_holders: pd.DataFrame | None = None,
         major_holders: pd.DataFrame | None = None,
     ) -> dict[str, Any]:
         close = price_daily["Close"]
+        high = price_daily["High"] if "High" in price_daily else pd.Series(dtype=float)
+        low = price_daily["Low"] if "Low" in price_daily else pd.Series(dtype=float)
         volume = price_daily["Volume"] if "Volume" in price_daily else pd.Series(dtype=float)
-        rolling_high = price_daily["High"].rolling(252, min_periods=1).max()
-        rolling_low = price_daily["Low"].rolling(252, min_periods=1).min()
+        rolling_high = high.rolling(252, min_periods=1).max()
+        rolling_low = low.rolling(252, min_periods=1).min()
 
         keys_info = [
             "longName",
@@ -341,9 +349,13 @@ class YahooIngester:
                 "market_reference_date": _series_latest_date(close),
                 "monthly_close": _series_to_float_dict(price_monthly),
                 "daily_close": _series_to_float_dict(close),
+                "daily_high": _series_to_float_dict(high),
+                "daily_low": _series_to_float_dict(low),
                 "daily_volume": _series_to_float_dict(volume),
                 "benchmark_ticker": benchmark_ticker,
                 "benchmark_daily_close": dict(benchmark_daily_close or {}),
+                "vix_ticker": vix_ticker,
+                "vix_daily_close": dict(vix_daily_close or {}),
             },
             "info": info_subset,
             "financials": {
