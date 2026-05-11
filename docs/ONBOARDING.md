@@ -9,8 +9,10 @@
 **프로덕션 플로 전체는 오직 아래 한 줄로 시작합니다.**
 
 ```bash
-python scripts/run_pipeline.py --ticker <티커>
+uv run scripts/run_pipeline.py --ticker <티커>
 ```
+
+> 첫 실행 전에는 `uv sync` 한 번이면 의존성·`.venv`·Python(3.11)이 모두 준비됩니다.
 
 - 모든 단계(수집 → 피처 → 리포트 → 평가 → 신호 → CSV 로그)는 **`scripts/run_pipeline.py`가 순서대로 호출**합니다.
 - 콘솔 **`[pipeline]`** 로그로 1/5~5/5 진행·`--skip-llm` vs LLM 분기·저장 경로를 요약합니다.
@@ -143,7 +145,7 @@ python scripts/run_pipeline.py --ticker <티커>
 
 ## 8. 체크리스트 (신규 팀원 첫날)
 
-- [ ] `pip install -r requirements.txt` 후 `python scripts/run_pipeline.py --ticker AAPL --skip-llm` 성공
+- [ ] `uv sync` 후 `uv run scripts/run_pipeline.py --ticker AAPL --skip-llm` 성공
 - [ ] `artifacts/`, `reports/` 에 파일 생기는지 확인
 - [ ] `config.yaml` 과 `prompts/report.j2` 열어보기
 - [ ] `src/report/llm.py` 에서 키·UA·base_url 흐름 한 번 읽기

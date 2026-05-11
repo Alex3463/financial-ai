@@ -1,0 +1,20 @@
+[project]
+name = "financial-ai"
+version = "0.1.0"
+description = "Yahoo Finance → LLM 리포트 → 규칙·Judge 평가 → 신호 스텁 파이프라인"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "yfinance>=0.2.36",
+    "pandas>=2.0",
+    "numpy>=1.24",
+    "openai>=1.0",
+    "python-dotenv>=1.0",
+    "pydantic>=2.0",
+    "jinja2>=3.1",
+    "tiktoken>=0.5",
+    "pyyaml>=6.0",
+]
+
+[tool.uv]
+package = false
