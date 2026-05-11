@@ -32,10 +32,14 @@ async def _maybe_enter_server(
     *,
     name: str,
 ):
-    server = make_yfinance_server(cfg, name=name)
-    if server is None:
+    try:
+        server = make_yfinance_server(cfg, name=name)
+        if server is None:
+            return None
+        return await exit_stack.enter_async_context(server)
+    except Exception as exc:
+        print(f"[pipeline] [경고] {name} MCP 초기화 실패 - 도구 없이 계속: {exc}", flush=True)
         return None
-    return await exit_stack.enter_async_context(server)
 
 
 async def _run_domain_agents(

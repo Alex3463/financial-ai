@@ -384,6 +384,24 @@ def build_fallback_summary(
     return bullets[:3]
 
 
+def _record_deep_read_failures(
+    enrichment: dict[str, Any],
+    status: dict[str, Any],
+    articles: list[dict[str, Any]],
+    error: str,
+) -> dict[str, Any]:
+    status["failed_count"] += len(articles)
+    enrichment["failures"].extend(
+        {
+            "title": article.get("title", ""),
+            "url": article.get("link", ""),
+            "error": error,
+        }
+        for article in articles
+    )
+    return enrichment
+
+
 def _extract_json_block(result_text: str) -> dict[str, Any]:
     match = re.search(
         r"### Result\s*(.*?)\s*### Ran Playwright code",
@@ -535,20 +553,26 @@ async def _enrich_news_async(
     news_dir = artifacts_dir / "news"
     news_dir.mkdir(parents=True, exist_ok=True)
 
-    server = make_playwright_server(cfg, name=f"playwright-news-{ticker}")
     if not candidates:
         return enrichment
+
+    try:
+        server = make_playwright_server(cfg, name=f"playwright-news-{ticker}")
+    except Exception as exc:
+        return _record_deep_read_failures(
+            enrichment,
+            status,
+            candidates,
+            f"Playwright MCP server could not be created: {exc}",
+        )
+
     if server is None:
-        status["failed_count"] = len(candidates)
-        enrichment["failures"] = [
-            {
-                "title": article.get("title", ""),
-                "url": article.get("link", ""),
-                "error": "Playwright MCP server is disabled or unavailable.",
-            }
-            for article in candidates
-        ]
-        return enrichment
+        return _record_deep_read_failures(
+            enrichment,
+            status,
+            candidates,
+            "Playwright MCP server is disabled or unavailable.",
+        )
 
     wait_after_navigation_sec = float(
         (((cfg.get("mcp", {}) or {}).get("playwright", {}) or {}).get(
@@ -557,53 +581,75 @@ async def _enrich_news_async(
         ))
     )
 
-    async with server:
-        for index, article in enumerate(candidates, start=1):
-            try:
-                payload = await _extract_article_payload(
-                    server,
-                    article,
-                    wait_after_navigation_sec=wait_after_navigation_sec,
-                )
-                markdown_text = html_fragment_to_markdown(str(payload.get("html") or ""))
-                if len(markdown_text) < MIN_ARTICLE_TEXT_LENGTH:
-                    raise ValueError(
-                        f"Converted markdown was too short ({len(markdown_text)} chars)."
+    handled_urls: set[str] = set()
+    try:
+        async with server:
+            for index, article in enumerate(candidates, start=1):
+                try:
+                    payload = await _extract_article_payload(
+                        server,
+                        article,
+                        wait_after_navigation_sec=wait_after_navigation_sec,
+                    )
+                    markdown_text = html_fragment_to_markdown(str(payload.get("html") or ""))
+                    if len(markdown_text) < MIN_ARTICLE_TEXT_LENGTH:
+                        raise ValueError(
+                            f"Converted markdown was too short ({len(markdown_text)} chars)."
+                        )
+
+                    file_name = f"{index:02d}-{_slugify(article.get('title', ''))}.md"
+                    markdown_path = news_dir / file_name
+                    markdown_path.write_text(markdown_text + "\n", encoding="utf-8")
+
+                    summary_bullets, summary_mode = summarize_article_markdown(
+                        article,
+                        markdown_text,
+                        llm_provider=llm_provider,
+                        preview_text=str(payload.get("preview") or ""),
                     )
 
-                file_name = f"{index:02d}-{_slugify(article.get('title', ''))}.md"
-                markdown_path = news_dir / file_name
-                markdown_path.write_text(markdown_text + "\n", encoding="utf-8")
-
-                summary_bullets, summary_mode = summarize_article_markdown(
-                    article,
-                    markdown_text,
-                    llm_provider=llm_provider,
-                    preview_text=str(payload.get("preview") or ""),
-                )
-
-                digest = {
-                    "title": article.get("title", ""),
-                    "publisher": article.get("publisher", ""),
-                    "published": article.get("published", ""),
-                    "url": article.get("link", ""),
-                    "selection_reason": article.get("selection_reason", ""),
-                    "markdown_path": str(markdown_path),
-                    "summary_bullets": summary_bullets,
-                    "source_url": article.get("link", ""),
-                }
-                enrichment["deep_read_articles"].append(digest)
-                status["deep_read_count"] += 1
-                status["summary_modes"].append(summary_mode)
-            except Exception as exc:
-                status["failed_count"] += 1
-                enrichment["failures"].append(
-                    {
+                    digest = {
                         "title": article.get("title", ""),
+                        "publisher": article.get("publisher", ""),
+                        "published": article.get("published", ""),
                         "url": article.get("link", ""),
-                        "error": str(exc),
+                        "selection_reason": article.get("selection_reason", ""),
+                        "markdown_path": str(markdown_path),
+                        "summary_bullets": summary_bullets,
+                        "source_url": article.get("link", ""),
                     }
-                )
+                    enrichment["deep_read_articles"].append(digest)
+                    status["deep_read_count"] += 1
+                    status["summary_modes"].append(summary_mode)
+                except Exception as exc:
+                    status["failed_count"] += 1
+                    enrichment["failures"].append(
+                        {
+                            "title": article.get("title", ""),
+                            "url": article.get("link", ""),
+                            "error": str(exc),
+                        }
+                    )
+                finally:
+                    handled_urls.add(str(article.get("link", "")))
+    except Exception as exc:
+        remaining = [
+            article for article in candidates if str(article.get("link", "")) not in handled_urls
+        ]
+        if remaining:
+            return _record_deep_read_failures(
+                enrichment,
+                status,
+                remaining,
+                f"Playwright MCP server failed to start: {exc}",
+            )
+        enrichment["failures"].append(
+            {
+                "title": "",
+                "url": "",
+                "error": f"Playwright MCP server closed with an error: {exc}",
+            }
+        )
 
     return enrichment
 

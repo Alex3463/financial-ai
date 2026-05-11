@@ -36,8 +36,8 @@ uv run scripts/run_pipeline.py --ticker AAPL
 
 - **Python 의존성**: `uv sync`가 `pyproject.toml` / `uv.lock` 기준으로 설치합니다. 뉴스 HTML→Markdown 변환에 필요한 `markdownify`도 여기 포함됩니다.
 - **Node.js / `npx`**: 심층 뉴스 읽기(deep-read)는 `Playwright MCP`를 `npx @playwright/mcp@latest`로 실행합니다. 따라서 **Node.js와 `npx`가 PATH에 있어야** 합니다.
-- **`uvx`**: `agents` 모드에서 `yfinance` MCP를 띄울 때 사용합니다. 일반적으로 `uv` 설치 시 같이 제공됩니다.
-- **첫 deep-read 실행**: `npx`가 `@playwright/mcp` 패키지를 내려받을 수 있어야 하므로, 첫 실행은 이후 실행보다 조금 더 오래 걸릴 수 있습니다.
+- **`uvx`**: `agents` 모드에서 `yfinance` MCP를 띄울 때 사용합니다. 일반적으로 `uv` 설치 시 같이 제공됩니다. 첫 실행이 느리면 최대 30초까지 기다리고 1회 재시도한 뒤, 실패 시 도구 없이 컨텍스트 기반 리포트로 계속 진행합니다.
+- **첫 deep-read 실행**: `npx`가 `@playwright/mcp` 패키지를 내려받을 수 있어야 하므로, 첫 실행은 이후 실행보다 조금 더 오래 걸릴 수 있습니다. 파이프라인은 전역 npm 캐시 충돌을 피하려고 기본적으로 `.playwright-mcp/npm-cache`를 사용합니다.
 
 기본값으로 오늘 날짜(UTC) 폴더에 산출물이 생깁니다.
 
@@ -80,6 +80,9 @@ uv run scripts/run_pipeline.py --ticker AAPL
 - **`llm.base_url`**: OpenAI 호환 Chat Completions 베이스 URL.
 - **`llm.api_key_env`**: 기본 `OPENAI_API_KEY` (환경변수가 가장 우선).
 - **`mcp.playwright`**: deep-read용 `Playwright MCP` 실행 커맨드/timeout 설정. 기본값은 `npx @playwright/mcp@latest --headless --isolated` 계열입니다.
+  - `command: "npx"`일 때 npm 다운로드 캐시는 기본적으로 `.playwright-mcp/npm-cache`로 격리됩니다.
+  - 다른 캐시를 쓰려면 `mcp.playwright.env.npm_config_cache`를 명시하세요.
+- **`mcp.yfinance`**: Agents 리포트 단계의 보강용 `yfinance` MCP 실행 커맨드와 초기화 timeout/retry 설정입니다. 실패해도 파이프라인은 `[pipeline] [경고]`를 남기고 기존 `context.json`만으로 리포트를 생성합니다.
 - **키 설정(단일 방식)**: **오직 `.env`로만 설정**합니다. `financial-ai/.env` 또는 `financial-ai/api_guide/.env` 중 하나에 `OPENAI_API_KEY=...` 를 넣으세요.
 
 모델은 키·계정에 따라 일부만 허용될 수 있습니다. 목록은 아래 명령으로 확인하세요.
@@ -185,6 +188,19 @@ financial-ai/
 
 - **첫 실행에서 뉴스 심층 읽기가 느림**
   `npx`가 `@playwright/mcp` 패키지를 내려받는 첫 실행일 수 있습니다. 이후 실행은 더 빨라집니다.
+
+- **`npm error ENOTEMPTY ... playwright-core` / `McpError: Connection closed`**
+  npm 캐시의 `_npx` 임시 설치 디렉터리가 꼬였을 때 나는 오류입니다. 현재 파이프라인은 Playwright MCP 시작 실패를 `news_enrichment.json`의 실패 항목으로 기록하고 나머지 리포트·평가·신호 단계는 계속 진행합니다. deep-read를 다시 살리고 싶으면 아래 순서로 정리하세요.
+
+  ```bash
+  rm -rf .playwright-mcp/npm-cache
+  uv run scripts/run_pipeline.py --ticker AAPL --skip-llm
+  ```
+
+  예전 실행이 전역 npm 캐시(`~/.npm/_npx/...`)를 쓰던 중 실패했다면 `npm cache verify` 후에도 같은 오류가 날 수 있습니다. 그 경우 `~/.npm/_npx`의 깨진 임시 디렉터리를 지우거나, `config.yaml`의 `mcp.playwright.env.npm_config_cache`를 별도 경로로 지정하세요.
+
+- **`yfinance-... MCP 초기화 실패 - 도구 없이 계속`**
+  Agents 리포트 단계의 yfinance MCP가 30초 안에 초기화되지 않거나 `uvx` 실행에 실패한 경우입니다. 이 MCP는 이미 저장된 `context.json`을 보강하는 선택 도구라서, 경고 후 도구 없이 리포트를 계속 생성합니다. 반복되면 `uvx --python 3.12 yfmcp@0.11.1` 실행 가능 여부와 `config.yaml`의 `mcp.yfinance.client_session_timeout_seconds` 값을 확인하세요.
 
 - **`403` / `"error code: 1010"`**  
   일부 게이트웨이는 비브라우저 클라이언트를 차단합니다. 이 프로젝트의 `report/llm.py`는 OpenAI SDK 요청에 브라우저형 `User-Agent`를 넣습니다. 필요 시 **`FINANCIAL_AI_USER_AGENT`** 로 변경 가능합니다.

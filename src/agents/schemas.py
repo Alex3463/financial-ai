@@ -51,7 +51,7 @@ class GrowthNewsOutput(StrictModel):
 
 class RiskItem(StrictModel):
     category: Literal["경쟁", "규제", "금리", "환율", "멀티플", "실적", "기타"]
-    description: str
+    description: str = Field(max_length=320)
     citations: list[str] = Field(min_length=1)
 
 

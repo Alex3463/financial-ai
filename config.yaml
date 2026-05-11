@@ -24,6 +24,8 @@ mcp:
     command: "uvx"
     args: ["--python", "3.12", "yfmcp@0.11.1"]
     env: {}
+    client_session_timeout_seconds: 30
+    max_retry_attempts: 1
   playwright:
     command: "npx"
     args: ["@playwright/mcp@latest"]

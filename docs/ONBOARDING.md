@@ -19,6 +19,8 @@ uv run scripts/run_pipeline.py --ticker <티커>
 - `src/` 아래 모듈은 **직접 실행하는 진입점이 아니라**, 파이프라인이 **임포트해서 쓰는 라이브러리**입니다.
 - 예외적으로 **보조 도구만** 별도 스크립트가 있습니다 (아래 표).
 
+뉴스 deep-read 단계는 `npx @playwright/mcp@latest`로 Playwright MCP를 실행합니다. 첫 실행에서는 패키지 다운로드 때문에 시간이 걸릴 수 있고, npm 캐시는 전역 `~/.npm/_npx` 대신 레포 로컬 `.playwright-mcp/npm-cache`를 기본으로 씁니다. MCP 시작이 실패해도 파이프라인은 `news_enrichment.json`에 실패 사유를 남기고 리포트·평가·신호 단계로 계속 진행합니다. Agents 리포트 단계의 yfinance MCP도 보강용 도구라서, 초기화 timeout/retry 이후 실패하면 `[pipeline] [경고]`를 남기고 기존 `context.json`만으로 계속 실행합니다.
+
 ### 보조 스크립트 (진입점이 아님)
 
 | 스크립트 | 역할 |
@@ -147,6 +149,8 @@ uv run scripts/run_pipeline.py --ticker <티커>
 
 - [ ] `uv sync` 후 `uv run scripts/run_pipeline.py --ticker AAPL --skip-llm` 성공
 - [ ] `artifacts/`, `reports/` 에 파일 생기는지 확인
+- [ ] deep-read 실패가 있으면 `artifacts/AAPL/<날짜>/news_enrichment.json`의 `failures[].error` 확인
+- [ ] Agents 리포트 중 yfinance MCP 경고가 보이면 `config.yaml`의 `mcp.yfinance` timeout/retry와 `uvx` 실행 가능 여부 확인
 - [ ] `config.yaml` 과 `prompts/report.j2` 열어보기
 - [ ] `src/report/llm.py` 에서 키·UA·base_url 흐름 한 번 읽기
 - [ ] 상위 폴더 `blue_print_overview.md` 와 본 레포 구조 대조

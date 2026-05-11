@@ -11,6 +11,7 @@ DEFAULT_YFINANCE_COMMAND = "uvx"
 DEFAULT_YFINANCE_ARGS = ["--python", "3.12", "yfmcp@0.11.1"]
 DEFAULT_PLAYWRIGHT_COMMAND = "npx"
 DEFAULT_PLAYWRIGHT_ARGS = ["@playwright/mcp@latest"]
+NPM_CACHE_ENV_KEYS = ("npm_config_cache", "NPM_CONFIG_CACHE")
 
 
 def tools_enabled(cfg: dict[str, Any]) -> bool:
@@ -23,6 +24,10 @@ def _merged_yfinance_config(cfg: dict[str, Any]) -> dict[str, Any]:
         "command": yfinance_cfg.get("command", DEFAULT_YFINANCE_COMMAND),
         "args": list(yfinance_cfg.get("args", DEFAULT_YFINANCE_ARGS)),
         "env": dict(yfinance_cfg.get("env", {})),
+        "client_session_timeout_seconds": float(
+            yfinance_cfg.get("client_session_timeout_seconds", 30)
+        ),
+        "max_retry_attempts": int(yfinance_cfg.get("max_retry_attempts", 1)),
     }
 
 
@@ -72,18 +77,32 @@ def _playwright_output_dir(cfg: dict[str, Any]) -> Path:
     return path
 
 
+def _is_npx_command(command: str) -> bool:
+    return Path(command).name == "npx"
+
+
+def _playwright_npm_cache_dir(cfg: dict[str, Any]) -> Path:
+    path = _playwright_output_dir(cfg) / "npm-cache"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
 def _merged_playwright_config(cfg: dict[str, Any]) -> dict[str, Any]:
     playwright_cfg = (cfg.get("mcp", {}) or {}).get("playwright", {}) or {}
     args = list(playwright_cfg.get("args", DEFAULT_PLAYWRIGHT_ARGS))
+    command = playwright_cfg.get("command", DEFAULT_PLAYWRIGHT_COMMAND)
+    env = dict(playwright_cfg.get("env", {}))
+    if _is_npx_command(str(command)) and not any(key in env for key in NPM_CACHE_ENV_KEYS):
+        env["npm_config_cache"] = str(_playwright_npm_cache_dir(cfg))
     _append_flag(args, "--headless")
     _append_flag(args, "--isolated")
     _append_flag(args, "--timeout-navigation", str(playwright_cfg.get("timeout_navigation_ms", 30000)))
     _append_flag(args, "--timeout-action", str(playwright_cfg.get("timeout_action_ms", 15000)))
     _append_flag(args, "--output-dir", str(_playwright_output_dir(cfg)))
     return {
-        "command": playwright_cfg.get("command", DEFAULT_PLAYWRIGHT_COMMAND),
+        "command": command,
         "args": args,
-        "env": dict(playwright_cfg.get("env", {})),
+        "env": env,
         "client_session_timeout_seconds": float(
             playwright_cfg.get("client_session_timeout_seconds", 30)
         ),
@@ -109,6 +128,8 @@ def make_yfinance_server(cfg: dict[str, Any], *, name: str) -> MCPServerStdio | 
             "env": env,
         },
         cache_tools_list=True,
+        client_session_timeout_seconds=float(mcp_cfg["client_session_timeout_seconds"]),
+        max_retry_attempts=int(mcp_cfg["max_retry_attempts"]),
     )
 
 

@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 import sys
+import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -10,12 +13,21 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from news.enrichment import (  # noqa: E402
+    _enrich_news_async,
     _extract_json_block,
     build_fallback_summary,
     html_fragment_to_markdown,
     select_deep_read_candidates,
     summarize_article_markdown,
 )
+
+
+class FailingServer:
+    async def __aenter__(self) -> "FailingServer":
+        raise RuntimeError("MCP startup failed")
+
+    async def __aexit__(self, exc_type, exc, tb) -> None:
+        return None
 
 
 class NewsEnrichmentTests(unittest.TestCase):
@@ -137,6 +149,31 @@ class NewsEnrichmentTests(unittest.TestCase):
 
         self.assertEqual(mode, "fallback")
         self.assertGreaterEqual(len(bullets), 1)
+
+    def test_enrich_news_records_failures_when_playwright_server_cannot_start(self) -> None:
+        article = {
+            "title": "Apple earnings beat expectations",
+            "summary": "Apple reported stronger revenue guidance.",
+            "link": "https://example.com/apple-earnings",
+        }
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch("news.enrichment.make_playwright_server", return_value=FailingServer()):
+                enrichment = asyncio.run(
+                    _enrich_news_async(
+                        {"agents": {"tools_enabled": True}},
+                        ticker="AAPL",
+                        company_name="Apple Inc.",
+                        news_items=[article],
+                        artifacts_dir=Path(tmpdir),
+                        llm_provider=None,
+                    )
+                )
+
+        self.assertEqual(enrichment["status"]["selected_count"], 1)
+        self.assertEqual(enrichment["status"]["deep_read_count"], 0)
+        self.assertEqual(enrichment["status"]["failed_count"], 1)
+        self.assertIn("MCP startup failed", enrichment["failures"][0]["error"])
 
 
 if __name__ == "__main__":
