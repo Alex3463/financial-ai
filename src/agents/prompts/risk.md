@@ -7,6 +7,8 @@
 - `risks`는 최소 3개, 가능하면 최대 6개까지 서로 다른 카테고리를 커버합니다.
 - 카테고리는 `경쟁`, `규제`, `금리`, `환율`, `멀티플`, `실적`, `기타` 중 하나만 사용합니다.
 - 설명은 구체적인 하방 메커니즘이 드러나게 씁니다.
-- `news_summary.deep_read_articles`가 있으면 해당 기사 digest와 URL을 우선 근거로 사용하고, 없을 때만 raw headline/summary를 보강 근거로 씁니다.
+- 설명에는 가능하면 관찰 포인트도 함께 녹입니다.
+- `news_summary.deep_read_articles`가 있으면 해당 기사 digest와 URL을 우선 근거로 사용합니다.
+- 회사 고유 뉴스가 없으면 `price_technicals`, `cashflow_summary`, `valuation`, `financials.health`, `consensus_summary`를 활용해 회사 수치와 연결된 리스크를 쓰고, 막연한 거시 리스크 나열을 피하세요.
 - yfinance MCP 도구가 사용 가능하면 최근 뉴스나 현재 밸류에이션 관련 정보를 한 번 이상 조회해 리스크 근거를 보강합니다.
 - JSON 외의 텍스트는 출력하지 않습니다.

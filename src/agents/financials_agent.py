@@ -13,6 +13,7 @@ def _build_input(context_slice: dict[str, Any]) -> str:
     return (
         "다음 financials 슬라이스만 사용해 FinancialsHealthOutput JSON을 생성하세요.\n"
         "quarterly_table 은 최신 분기부터 정확히 4행이어야 합니다.\n"
+        "cashflow_summary 가 있으면 최근 분기 OCF, FCF, CapEx, current ratio 해석을 health_notes 에 반영하세요.\n"
         "필요할 때만 yfinance MCP 도구를 사용하세요.\n\n"
         f"{dump_json(context_slice)}"
     )

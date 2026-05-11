@@ -19,7 +19,7 @@ from news.enrichment import (  # noqa: E402
 
 
 class NewsEnrichmentTests(unittest.TestCase):
-    def test_select_deep_read_candidates_requires_url_and_keyword(self) -> None:
+    def test_select_deep_read_candidates_prefers_company_specific_articles(self) -> None:
         articles = [
             {
                 "title": "Apple earnings beat expectations on strong iPhone demand",
@@ -32,19 +32,45 @@ class NewsEnrichmentTests(unittest.TestCase):
                 "link": "https://example.com/market-wrap",
             },
             {
+                "title": "Apple launches new on-device AI feature",
+                "summary": "New on-device AI capabilities were previewed.",
+                "link": "https://example.com/apple-ai-launch",
+            },
+        ]
+
+        selected = select_deep_read_candidates(
+            articles,
+            ticker="AAPL",
+            company_name="Apple Inc.",
+        )
+
+        self.assertEqual(len(selected), 2)
+        self.assertEqual(selected[0]["link"], "https://example.com/earnings")
+        self.assertIn("회사명/티커", selected[0]["selection_reason"])
+        self.assertEqual(selected[1]["link"], "https://example.com/apple-ai-launch")
+        self.assertIn("회사명/티커", selected[1]["selection_reason"])
+
+    def test_select_deep_read_candidates_skips_sector_only_articles(self) -> None:
+        articles = [
+            {
                 "title": "AI feature launch expands data center roadmap",
                 "summary": "New on-device AI capabilities were previewed.",
                 "link": "https://example.com/ai-launch",
             },
+            {
+                "title": "General market wrap",
+                "summary": "A quiet trading day.",
+                "link": "https://example.com/market-wrap",
+            },
         ]
 
-        selected = select_deep_read_candidates(articles)
+        selected = select_deep_read_candidates(
+            articles,
+            ticker="AAPL",
+            company_name="Apple Inc.",
+        )
 
-        self.assertEqual(len(selected), 2)
-        self.assertEqual(selected[0]["link"], "https://example.com/earnings")
-        self.assertIn("실적", selected[0]["selection_reason"])
-        self.assertEqual(selected[1]["link"], "https://example.com/ai-launch")
-        self.assertIn("AI", selected[1]["selection_reason"])
+        self.assertEqual(selected, [])
 
     def test_html_fragment_to_markdown_removes_non_content_tags(self) -> None:
         html = """

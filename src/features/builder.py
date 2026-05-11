@@ -12,6 +12,7 @@ class FeatureBuilder:
         daily = snapshot["price"]["daily_close"]
         info = snapshot["info"]
         income = snapshot["financials"]["income_stmt"]
+        price = snapshot["price"]
 
         returns = self._compute_returns(monthly)
         valuation = self._compute_valuation(info)
@@ -19,6 +20,13 @@ class FeatureBuilder:
         growth = self._compute_yoy_growth(income)
         sentiment = self._simple_news_sentiment(snapshot["news"])
         vol = self._annualized_vol(daily)
+        technicals = self._compute_price_technicals(
+            daily,
+            current_price=price.get("current"),
+            high_52w=price.get("52w_high"),
+            low_52w=price.get("52w_low"),
+            returns=returns,
+        )
 
         out = {
             **returns,
@@ -27,6 +35,7 @@ class FeatureBuilder:
             "growth": growth,
             "sentiment": sentiment,
             "vol_annual": vol,
+            "technicals": technicals,
         }
         return out
 
@@ -110,11 +119,102 @@ class FeatureBuilder:
         values = [rev[d] for d in dates]
         if len(values) < 8:
             return {"revenue_yoy_pct": None}
-        ttm_now = sum(values[:4])
-        ttm_prev = sum(values[4:8])
+        ttm_now = sum(values[-4:])
+        ttm_prev = sum(values[-8:-4])
         if not ttm_prev or math.isclose(ttm_prev, 0):
             return {"revenue_yoy_pct": None}
         return {"revenue_yoy_pct": round((ttm_now / ttm_prev - 1) * 100, 2)}
+
+    def _compute_price_technicals(
+        self,
+        daily: dict[str, float],
+        *,
+        current_price: float | None,
+        high_52w: float | None,
+        low_52w: float | None,
+        returns: dict[str, Any],
+    ) -> dict[str, Any]:
+        if not daily:
+            return {
+                "ma_20": None,
+                "ma_50": None,
+                "ma_200": None,
+                "rsi_14": None,
+                "pct_from_52w_high": None,
+                "pct_above_52w_low": None,
+                "range_position_pct": None,
+                "distance_to_ma_20_pct": None,
+                "distance_to_ma_50_pct": None,
+                "distance_to_ma_200_pct": None,
+                "returns": dict(returns),
+            }
+
+        sorted_items = sorted(daily.items(), key=lambda x: x[0])
+        closes = np.array([v for _, v in sorted_items], dtype=float)
+
+        def moving_average(window: int) -> float | None:
+            if len(closes) < window:
+                return None
+            return round(float(np.mean(closes[-window:])), 2)
+
+        ma_20 = moving_average(20)
+        ma_50 = moving_average(50)
+        ma_200 = moving_average(200)
+        rsi_14 = self._rsi(closes, window=14)
+
+        def pct_distance(base: float | None) -> float | None:
+            if current_price in (None, 0) or base in (None, 0):
+                return None
+            try:
+                return round((float(current_price) / float(base) - 1) * 100, 2)
+            except (TypeError, ValueError, ZeroDivisionError):
+                return None
+
+        range_position = None
+        if (
+            current_price is not None
+            and high_52w not in (None, 0)
+            and low_52w is not None
+            and not math.isclose(float(high_52w), float(low_52w))
+        ):
+            try:
+                range_position = round(
+                    (float(current_price) - float(low_52w))
+                    / (float(high_52w) - float(low_52w))
+                    * 100,
+                    1,
+                )
+            except (TypeError, ValueError, ZeroDivisionError):
+                range_position = None
+
+        return {
+            "ma_20": ma_20,
+            "ma_50": ma_50,
+            "ma_200": ma_200,
+            "rsi_14": rsi_14,
+            "pct_from_52w_high": pct_distance(high_52w),
+            "pct_above_52w_low": pct_distance(low_52w),
+            "range_position_pct": range_position,
+            "distance_to_ma_20_pct": pct_distance(ma_20),
+            "distance_to_ma_50_pct": pct_distance(ma_50),
+            "distance_to_ma_200_pct": pct_distance(ma_200),
+            "returns": dict(returns),
+        }
+
+    def _rsi(self, closes: np.ndarray, *, window: int) -> float | None:
+        if len(closes) <= window:
+            return None
+        deltas = np.diff(closes[-(window + 1) :])
+        gains = np.clip(deltas, 0, None)
+        losses = np.clip(-deltas, 0, None)
+        avg_gain = float(np.mean(gains))
+        avg_loss = float(np.mean(losses))
+        if math.isclose(avg_gain, 0.0) and math.isclose(avg_loss, 0.0):
+            return 50.0
+        if math.isclose(avg_loss, 0.0):
+            return 100.0
+        rs = avg_gain / avg_loss
+        return round(100 - (100 / (1 + rs)), 2)
 
     def _simple_news_sentiment(self, news: list[dict[str, Any]]) -> dict[str, Any]:
         pos_kw = {"beats", "surges", "growth", "strong", "record", "upgrade", "buy"}

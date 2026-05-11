@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -25,6 +26,7 @@ class ContextBuilder:
         info = snapshot["info"]
         deep_read_articles = list((news_enrichment or {}).get("deep_read_articles", []))
         deep_read_status = dict((news_enrichment or {}).get("status", {}))
+        company_relevant_articles = list((news_enrichment or {}).get("company_relevant_articles", []))
         return {
             "metadata": {
                 "ticker": snapshot["ticker"],
@@ -34,6 +36,7 @@ class ContextBuilder:
                 "report_date": today_str(),
                 "data_as_of": snapshot["fetched_at"],
             },
+            "company_profile": self._company_profile(info),
             "price_summary": {
                 "current_price": snapshot["price"]["current"],
                 "52w_high": snapshot["price"]["52w_high"],
@@ -41,19 +44,23 @@ class ContextBuilder:
                 "returns": {k: v for k, v in features.items() if str(k).startswith("return_")},
                 "vol_annual": features.get("vol_annual"),
             },
+            "price_technicals": self._price_technicals(snapshot, features),
             "valuation": features["valuation"],
             "financials": {
                 "quarterly_trend": self._last_4q_summary(snapshot["financials"]["income_stmt"]),
                 "growth_rates": features["growth"],
                 "health": features["health"],
             },
+            "cashflow_summary": self._cashflow_summary(snapshot, features),
             "news_summary": {
                 "recent_headlines": [n.get("title", "") for n in snapshot["news"][:5]],
                 "sentiment": features["sentiment"],
                 "deep_read_articles": deep_read_articles,
                 "deep_read_status": deep_read_status,
+                "company_relevant_articles": company_relevant_articles,
             },
             "analyst_consensus": snapshot["analyst_recs"],
+            "consensus_summary": self._consensus_summary(snapshot),
         }
 
     def check_token_budget(self, context: dict[str, Any], model: str = "gpt-4o") -> dict[str, Any]:
@@ -88,6 +95,176 @@ class ContextBuilder:
                 }
             )
         return rows
+
+    def _company_profile(self, info: dict[str, Any]) -> dict[str, Any]:
+        company_name = info.get("longName")
+        sector = info.get("sector")
+        industry = info.get("industry")
+        long_summary = str(info.get("longBusinessSummary") or "").strip()
+
+        summary_line = self._first_sentence(long_summary)
+        if company_name and long_summary and summary_line.rstrip(".") == str(company_name).rstrip("."):
+            summary_line = re.sub(r"\s+", " ", long_summary).strip()[:220].rstrip() + "…"
+        if not summary_line:
+            bits = [bit for bit in (sector, industry) if bit]
+            if company_name and bits:
+                summary_line = f"{company_name} is a {bits[-1]} company in the {bits[0]} sector."
+            elif company_name:
+                summary_line = f"{company_name} business summary: 데이터 미제공."
+            else:
+                summary_line = "데이터 미제공"
+
+        return {
+            "summary_line": summary_line,
+            "website": info.get("website"),
+            "sector": sector,
+            "industry": industry,
+            "source": "yf.info.longBusinessSummary"
+            if long_summary
+            else "yf.info.sector/industry (fallback)",
+        }
+
+    def _price_technicals(self, snapshot: dict[str, Any], features: dict[str, Any]) -> dict[str, Any]:
+        price = snapshot.get("price", {})
+        technicals = dict(features.get("technicals", {}))
+        return {
+            "current_price": price.get("current"),
+            "ma_20": technicals.get("ma_20"),
+            "ma_50": technicals.get("ma_50"),
+            "ma_200": technicals.get("ma_200"),
+            "rsi_14": technicals.get("rsi_14"),
+            "pct_from_52w_high": technicals.get("pct_from_52w_high"),
+            "pct_above_52w_low": technicals.get("pct_above_52w_low"),
+            "range_position_pct": technicals.get("range_position_pct"),
+            "distance_to_ma_20_pct": technicals.get("distance_to_ma_20_pct"),
+            "distance_to_ma_50_pct": technicals.get("distance_to_ma_50_pct"),
+            "distance_to_ma_200_pct": technicals.get("distance_to_ma_200_pct"),
+            "returns": dict(technicals.get("returns", {})),
+            "vol_annual": features.get("vol_annual"),
+        }
+
+    def _cashflow_summary(self, snapshot: dict[str, Any], features: dict[str, Any]) -> dict[str, Any]:
+        balance_sheet = snapshot.get("financials", {}).get("balance_sheet", {})
+        cashflow = snapshot.get("financials", {}).get("cashflow", {})
+        health = dict(features.get("health", {}))
+        latest_quarter = self._latest_statement_date(
+            balance_sheet.get("Current Assets"),
+            cashflow.get("Operating Cash Flow"),
+            cashflow.get("Free Cash Flow"),
+        )
+
+        current_assets = self._statement_value(balance_sheet, "Current Assets", latest_quarter)
+        current_liabilities = self._statement_value(
+            balance_sheet,
+            "Current Liabilities",
+            latest_quarter,
+        )
+        current_ratio = None
+        if current_assets is not None and current_liabilities not in (None, 0):
+            current_ratio = round(current_assets / current_liabilities, 2)
+
+        return {
+            "latest_quarter": latest_quarter,
+            "operating_cash_flow": self._statement_value(
+                cashflow,
+                "Operating Cash Flow",
+                latest_quarter,
+            ),
+            "free_cash_flow": self._statement_value(cashflow, "Free Cash Flow", latest_quarter),
+            "capital_expenditure": self._statement_value(
+                cashflow,
+                "Capital Expenditure",
+                latest_quarter,
+            ),
+            "cash": snapshot.get("info", {}).get("totalCash"),
+            "debt": snapshot.get("info", {}).get("totalDebt"),
+            "net_debt": health.get("net_debt"),
+            "current_assets": current_assets,
+            "current_liabilities": current_liabilities,
+            "current_ratio": current_ratio,
+            "operating_margin": health.get("operating_margin"),
+            "profit_margin": health.get("profit_margin"),
+        }
+
+    def _consensus_summary(self, snapshot: dict[str, Any]) -> dict[str, Any]:
+        info = snapshot.get("info", {})
+        recs = snapshot.get("analyst_recs", {})
+        strong_buy = self._int_or_none(recs.get("strongBuy"))
+        buy = self._int_or_none(recs.get("buy"))
+        hold = self._int_or_none(recs.get("hold"))
+        sell = self._int_or_none(recs.get("sell"))
+        strong_sell = self._int_or_none(recs.get("strongSell"))
+
+        buy_count = self._sum_known(strong_buy, buy)
+        hold_count = hold
+        sell_count = self._sum_known(sell, strong_sell)
+
+        total_count = self._int_or_none(info.get("numberOfAnalystOpinions"))
+        if total_count is None:
+            total_count = self._sum_known(buy_count, hold_count, sell_count)
+
+        buy_ratio_pct = None
+        if total_count not in (None, 0) and buy_count is not None:
+            buy_ratio_pct = round(buy_count / total_count * 100, 1)
+
+        return {
+            "buy_count": buy_count,
+            "hold_count": hold_count,
+            "sell_count": sell_count,
+            "total_count": total_count,
+            "buy_ratio_pct": buy_ratio_pct,
+            "target_mean_price": info.get("targetMeanPrice"),
+            "target_low_price": info.get("targetLowPrice"),
+            "target_high_price": info.get("targetHighPrice"),
+            "number_of_analyst_opinions": self._int_or_none(info.get("numberOfAnalystOpinions")),
+            "recommendation_key": info.get("recommendationKey"),
+        }
+
+    def _first_sentence(self, text: str, limit: int = 220) -> str:
+        cleaned = re.sub(r"\s+", " ", text).strip()
+        if not cleaned:
+            return ""
+        parts = re.split(r"(?<=[.!?])\s+", cleaned)
+        sentence = parts[0].strip()
+        if len(parts) > 1 and re.search(r"\b(?:inc|corp|corporation|ltd|plc|co)\.$", sentence.lower()):
+            sentence = f"{sentence} {parts[1].strip()}".strip()
+        if len(sentence) <= limit:
+            return sentence
+        return sentence[: limit - 1].rstrip() + "…"
+
+    def _latest_statement_date(self, *series_candidates: Any) -> str | None:
+        for candidate in series_candidates:
+            if isinstance(candidate, dict) and candidate:
+                return sorted(candidate.keys(), reverse=True)[0]
+        return None
+
+    def _statement_value(
+        self,
+        statement: dict[str, Any],
+        row_name: str,
+        quarter: str | None,
+    ) -> float | None:
+        row = statement.get(row_name)
+        if not isinstance(row, dict) or not row:
+            return None
+        if quarter and row.get(quarter) is not None:
+            return row.get(quarter)
+        latest_quarter = sorted(row.keys(), reverse=True)[0]
+        return row.get(latest_quarter)
+
+    def _int_or_none(self, value: Any) -> int | None:
+        if value is None:
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+    def _sum_known(self, *values: int | None) -> int | None:
+        known = [value for value in values if value is not None]
+        if not known:
+            return None
+        return sum(known)
 
 
 def render_report_prompt(

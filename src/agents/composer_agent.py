@@ -9,6 +9,12 @@ _PROMPT = load_prompt_text("composer.md")
 def _format_number(value: float | None) -> str:
     if value is None:
         return "N/A"
+    abs_value = abs(value)
+    for threshold, suffix in ((1_000_000_000_000, "T"), (1_000_000_000, "B"), (1_000_000, "M")):
+        if abs_value >= threshold:
+            return f"{value / threshold:.1f}{suffix}"
+    if abs_value >= 1_000:
+        return f"{value / 1_000:.1f}K"
     return f"{value:,.0f}"
 
 
@@ -50,6 +56,12 @@ def _build_input(composer_input: ComposerInput) -> str:
         f"{exact_table}\n\n"
         "Immediately after that table, write this exact trailing PER line:\n"
         f"{exact_per_line}\n\n"
+        "Use the supplemental fields for richer content:\n"
+        "- company_profile: 회사 설명 1줄\n"
+        "- price_technicals: 이동평균, RSI, 52주 위치, 수익률\n"
+        "- cashflow_summary: OCF, FCF, CapEx, current ratio, 순현금/순차입금\n"
+        "- consensus_summary: buy/hold/sell 분포와 애널리스트 목표가 범위\n"
+        "- news_summary.company_relevant_articles / deep_read_articles: 회사 관련 기사 우선\n\n"
         "Reuse the actual citation strings from the input data when you reference evidence.\n\n"
         f"{dump_json(composer_input.model_dump(mode='json'))}"
     )

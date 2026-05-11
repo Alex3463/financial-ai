@@ -12,6 +12,7 @@ _PROMPT = load_prompt_text("valuation.md")
 def _build_input(context_slice: dict[str, Any]) -> str:
     return (
         "다음 valuation 슬라이스만 사용해 ValuationOutput JSON을 생성하세요.\n"
+        "consensus_summary 의 목표가 범위는 참고치로만 사용하고, 주된 산정은 valuation 입력을 기준으로 유지하세요.\n"
         "필요할 때만 yfinance MCP 도구를 사용하세요.\n\n"
         f"{dump_json(context_slice)}"
     )

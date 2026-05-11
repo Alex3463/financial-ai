@@ -193,6 +193,8 @@ class YahooIngester:
             "longName",
             "sector",
             "industry",
+            "longBusinessSummary",
+            "website",
             "marketCap",
             "trailingPE",
             "forwardPE",
@@ -206,6 +208,11 @@ class YahooIngester:
             "freeCashflow",
             "enterpriseValue",
             "ebitda",
+            "targetMeanPrice",
+            "targetLowPrice",
+            "targetHighPrice",
+            "numberOfAnalystOpinions",
+            "recommendationKey",
         ]
         info_subset = {k: info.get(k) for k in keys_info}
 

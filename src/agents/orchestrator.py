@@ -72,6 +72,10 @@ async def _run_agent_report_async(cfg: dict[str, Any], context: dict[str, Any]) 
 
     composer_input = ComposerInput(
         metadata=dict(context.get("metadata", {})),
+        company_profile=dict(context.get("company_profile", {})),
+        price_technicals=dict(context.get("price_technicals", {})),
+        cashflow_summary=dict(context.get("cashflow_summary", {})),
+        consensus_summary=dict(context.get("consensus_summary", {})),
         actual_per=_actual_per(context),
         valuation=valuation,
         financials=financials,

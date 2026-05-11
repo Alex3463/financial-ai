@@ -9,5 +9,7 @@
 - yfinance MCP 도구가 사용 가능하면 trailingPE, forwardPE, 또는 현재가 관련 근거를 한 번 이상 재확인해 최신성을 보강합니다.
 - `formula_text`는 반드시 `목표가 = ...` 형태의 한국어 문장으로 작성합니다.
 - `target_price`는 숫자(float)로, `horizon`은 `1개월|3개월|6개월|12개월` 중 하나로 채웁니다.
+- `consensus_summary.target_mean_price`, `target_low_price`, `target_high_price`가 있으면 참고치로만 활용하고, 주된 목표가 산정은 입력 `valuation` 숫자를 기준으로 유지합니다.
+- `price_technicals.current_price` 또는 `price_summary.current_price`와 비교해 과도하게 동떨어진 목표가를 만들지 말고, 보수적 하방 시나리오도 함께 고려합니다.
 - 데이터가 부족하면 과도한 추정 대신 `mixed` 또는 보수적 가정을 사용합니다.
 - 설명 문장은 간결하게 쓰고, JSON 외의 텍스트는 출력하지 않습니다.

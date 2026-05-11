@@ -18,6 +18,32 @@ DEFAULT_MAX_DEEP_READS = 2
 DEFAULT_WAIT_AFTER_NAVIGATION_SEC = 1.0
 MIN_ARTICLE_TEXT_LENGTH = 400
 MAX_ARTICLE_MARKDOWN_CHARS = 12000
+GENERIC_COMPANY_TOKENS = {
+    "inc",
+    "incorporated",
+    "corp",
+    "corporation",
+    "co",
+    "company",
+    "holdings",
+    "holding",
+    "group",
+    "plc",
+    "ltd",
+    "limited",
+    "sa",
+    "ag",
+    "nv",
+    "class",
+    "common",
+}
+COMPANY_EVENT_KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("실적", ("earnings", "results", "guidance", "outlook", "forecast", "margin", "profit")),
+    ("제품", ("launch", "product", "device", "service", "subscription", "feature", "release")),
+    ("규제", ("regulation", "regulatory", "antitrust", "lawsuit", "fine", "privacy", "tariff")),
+    ("M&A", ("acquisition", "merger", "deal", "stake", "buyout", "partnership")),
+    ("구조조정", ("layoff", "restructuring", "cost cut", "buyback", "dividend")),
+)
 
 IMPACT_KEYWORD_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     (
@@ -205,6 +231,28 @@ def _slugify(value: str) -> str:
     return slug[:80] or "article"
 
 
+def _normalize_tokens(value: str) -> list[str]:
+    return re.findall(r"[a-z0-9]+", (value or "").lower())
+
+
+def _build_company_aliases(ticker: str, company_name: str) -> set[str]:
+    aliases: set[str] = set()
+    ticker_token = (ticker or "").strip().lower()
+    if ticker_token:
+        aliases.add(ticker_token)
+
+    for token in _normalize_tokens(company_name):
+        if len(token) <= 1 or token in GENERIC_COMPANY_TOKENS:
+            continue
+        aliases.add(token)
+    return aliases
+
+
+def _contains_alias(text: str, aliases: set[str]) -> bool:
+    padded = f" {text.lower()} "
+    return any(re.search(rf"\b{re.escape(alias)}\b", padded) for alias in aliases)
+
+
 def _clean_text(value: str, *, limit: int = 220) -> str:
     cleaned = re.sub(r"\s+", " ", (value or "")).strip()
     if len(cleaned) <= limit:
@@ -221,25 +269,92 @@ def _extract_impact_labels(article: dict[str, Any]) -> list[str]:
     return labels
 
 
+def _extract_company_event_labels(article: dict[str, Any]) -> list[str]:
+    text = f" {article.get('title', '')} {article.get('summary', '')} ".lower()
+    labels: list[str] = []
+    for label, keywords in COMPANY_EVENT_KEYWORDS:
+        if any(keyword in text for keyword in keywords):
+            labels.append(label)
+    return labels
+
+
+def _score_company_relevance(
+    article: dict[str, Any],
+    *,
+    ticker: str,
+    company_name: str,
+) -> dict[str, Any]:
+    title = str(article.get("title", "")).strip()
+    summary = str(article.get("summary", "")).strip()
+    text = f"{title} {summary}".strip()
+    title_lower = title.lower()
+    summary_lower = summary.lower()
+    url_lower = str(article.get("link", "")).lower()
+
+    aliases = _build_company_aliases(ticker, company_name)
+    title_match = _contains_alias(title_lower, aliases)
+    summary_match = _contains_alias(summary_lower, aliases)
+    url_match = any(alias and alias in url_lower for alias in aliases)
+    event_labels = _extract_company_event_labels(article)
+    impact_labels = _extract_impact_labels(article)
+
+    score = 0
+    reasons: list[str] = []
+    if title_match:
+        score += 100
+        reasons.append("제목에 회사명/티커 직접 언급")
+    elif summary_match:
+        score += 80
+        reasons.append("요약에 회사명/티커 직접 언급")
+    elif url_match:
+        score += 60
+        reasons.append("URL에 회사 식별자 포함")
+
+    if score > 0 and event_labels:
+        score += 20
+        reasons.append("회사 이벤트: " + ", ".join(event_labels[:2]))
+    elif score > 0 and impact_labels:
+        score += 5
+        reasons.append("관련 키워드: " + ", ".join(impact_labels[:2]))
+
+    return {
+        "score": score,
+        "reasons": reasons,
+        "event_labels": event_labels,
+        "impact_labels": impact_labels,
+        "company_match": score > 0,
+    }
+
+
 def select_deep_read_candidates(
     articles: list[dict[str, Any]],
     *,
+    ticker: str = "",
+    company_name: str = "",
     max_articles: int = DEFAULT_MAX_DEEP_READS,
 ) -> list[dict[str, Any]]:
-    selected: list[dict[str, Any]] = []
+    ranked: list[dict[str, Any]] = []
     for article in articles:
         url = str(article.get("link") or "").strip()
         if not _is_http_url(url):
             continue
-        labels = _extract_impact_labels(article)
-        if not labels:
+        relevance = _score_company_relevance(article, ticker=ticker, company_name=company_name)
+        if not relevance["company_match"]:
             continue
         chosen = dict(article)
-        chosen["selection_reason"] = "영향 키워드: " + ", ".join(labels[:3])
-        selected.append(chosen)
-        if len(selected) >= max_articles:
-            break
-    return selected
+        chosen["selection_reason"] = " / ".join(relevance["reasons"]) or "회사 관련 기사"
+        chosen["company_relevance_score"] = relevance["score"]
+        chosen["company_event_labels"] = relevance["event_labels"]
+        chosen["impact_labels"] = relevance["impact_labels"]
+        ranked.append(chosen)
+    ranked.sort(
+        key=lambda article: (
+            article.get("company_relevance_score") or 0,
+            str(article.get("published") or ""),
+        ),
+        reverse=True,
+    )
+    return ranked[:max_articles]
 
 
 def html_fragment_to_markdown(html: str) -> str:
@@ -371,11 +486,18 @@ async def _enrich_news_async(
     cfg: dict[str, Any],
     *,
     ticker: str,
+    company_name: str,
     news_items: list[dict[str, Any]],
     artifacts_dir: Path,
     llm_provider: LLMProvider | None,
 ) -> dict[str, Any]:
-    candidates = select_deep_read_candidates(news_items)
+    company_relevant_articles = select_deep_read_candidates(
+        news_items,
+        ticker=ticker,
+        company_name=company_name,
+        max_articles=max(len(news_items), DEFAULT_MAX_DEEP_READS),
+    )
+    candidates = company_relevant_articles[:DEFAULT_MAX_DEEP_READS]
     status = {
         "selected_count": len(candidates),
         "deep_read_count": 0,
@@ -386,6 +508,17 @@ async def _enrich_news_async(
         "ticker": ticker,
         "status": status,
         "deep_read_articles": [],
+        "company_relevant_articles": [
+            {
+                "title": article.get("title", ""),
+                "publisher": article.get("publisher", ""),
+                "published": article.get("published", ""),
+                "url": article.get("link", ""),
+                "selection_reason": article.get("selection_reason", ""),
+                "company_relevance_score": article.get("company_relevance_score"),
+            }
+            for article in company_relevant_articles
+        ],
         "failures": [],
         "selected_articles": [
             {
@@ -479,6 +612,7 @@ def enrich_news(
     cfg: dict[str, Any],
     *,
     ticker: str,
+    company_name: str,
     news_items: list[dict[str, Any]],
     artifacts_dir: Path,
     use_llm_summary: bool,
@@ -494,6 +628,7 @@ def enrich_news(
         _enrich_news_async(
             cfg,
             ticker=ticker,
+            company_name=company_name,
             news_items=news_items,
             artifacts_dir=artifacts_dir,
             llm_provider=llm_provider,

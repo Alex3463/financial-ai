@@ -194,6 +194,7 @@ def run_single_pipeline(
     news_enrichment = enrich_news(
         cfg,
         ticker=ticker,
+        company_name=str(snapshot.get("info", {}).get("longName") or ticker),
         news_items=list(snapshot.get("news", [])),
         artifacts_dir=paths["artifacts_dir"],
         use_llm_summary=not args.skip_llm,
