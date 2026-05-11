@@ -10,6 +10,8 @@ class FeatureBuilder:
     def build(self, snapshot: dict[str, Any]) -> dict[str, Any]:
         monthly = snapshot["price"]["monthly_close"]
         daily = snapshot["price"]["daily_close"]
+        daily_volume = snapshot["price"].get("daily_volume", {})
+        benchmark_daily = snapshot["price"].get("benchmark_daily_close", {})
         info = snapshot["info"]
         income = snapshot["financials"]["income_stmt"]
         price = snapshot["price"]
@@ -27,6 +29,12 @@ class FeatureBuilder:
             low_52w=price.get("52w_low"),
             returns=returns,
         )
+        volume_summary = self._compute_volume_summary(daily_volume)
+        market_context = self._compute_market_context(
+            daily,
+            benchmark_daily,
+            benchmark_ticker=price.get("benchmark_ticker"),
+        )
 
         out = {
             **returns,
@@ -36,6 +44,8 @@ class FeatureBuilder:
             "sentiment": sentiment,
             "vol_annual": vol,
             "technicals": technicals,
+            "volume_summary": volume_summary,
+            "market_context": market_context,
         }
         return out
 
@@ -86,6 +96,8 @@ class FeatureBuilder:
             "Forward_PER": info.get("forwardPE"),
             "PBR": info.get("priceToBook"),
             "EV_EBITDA": ev_ebitda,
+            "trailing_EPS": info.get("trailingEps"),
+            "forward_EPS": info.get("forwardEps"),
         }
 
     def _compute_health(self, info: dict[str, Any]) -> dict[str, Any]:
@@ -110,6 +122,90 @@ class FeatureBuilder:
             "operating_margin": info.get("operatingMargins"),
             "ROE": info.get("returnOnEquity"),
         }
+
+    def _compute_volume_summary(self, daily_volume: dict[str, float]) -> dict[str, Any]:
+        if not daily_volume:
+            return {
+                "latest_volume": None,
+                "avg_volume_20d": None,
+                "avg_volume_60d": None,
+                "volume_vs_20d_pct": None,
+                "volume_vs_60d_pct": None,
+            }
+
+        values = [v for _, v in sorted(daily_volume.items(), key=lambda x: x[0]) if v is not None]
+        if not values:
+            return {
+                "latest_volume": None,
+                "avg_volume_20d": None,
+                "avg_volume_60d": None,
+                "volume_vs_20d_pct": None,
+                "volume_vs_60d_pct": None,
+            }
+
+        latest = float(values[-1])
+
+        def avg(window: int) -> float | None:
+            if not values:
+                return None
+            xs = values[-window:]
+            if not xs:
+                return None
+            return round(float(np.mean(np.array(xs, dtype=float))), 2)
+
+        def vs_average(average: float | None) -> float | None:
+            if average in (None, 0):
+                return None
+            return round((latest / float(average) - 1) * 100, 2)
+
+        avg_20 = avg(20)
+        avg_60 = avg(60)
+        return {
+            "latest_volume": latest,
+            "avg_volume_20d": avg_20,
+            "avg_volume_60d": avg_60,
+            "volume_vs_20d_pct": vs_average(avg_20),
+            "volume_vs_60d_pct": vs_average(avg_60),
+        }
+
+    def _compute_market_context(
+        self,
+        daily_close: dict[str, float],
+        benchmark_daily_close: dict[str, float],
+        *,
+        benchmark_ticker: str | None,
+    ) -> dict[str, Any]:
+        out: dict[str, Any] = {"benchmark_ticker": benchmark_ticker}
+        windows = {
+            "1m": 21,
+            "3m": 63,
+            "6m": 126,
+            "12m": 252,
+        }
+        for label, days in windows.items():
+            stock_return = self._trading_day_return(daily_close, days)
+            benchmark_return = self._trading_day_return(benchmark_daily_close, days)
+            out[f"stock_return_{label}"] = stock_return
+            out[f"benchmark_return_{label}"] = benchmark_return
+            out[f"excess_return_{label}"] = (
+                round(stock_return - benchmark_return, 2)
+                if stock_return is not None and benchmark_return is not None
+                else None
+            )
+        return out
+
+    def _trading_day_return(self, closes: dict[str, float], trading_days: int) -> float | None:
+        vals = [v for _, v in sorted(closes.items(), key=lambda x: x[0]) if v is not None]
+        if len(vals) <= trading_days:
+            return None
+        prev = vals[-(trading_days + 1)]
+        current = vals[-1]
+        if prev in (None, 0):
+            return None
+        try:
+            return round((float(current) / float(prev) - 1) * 100, 2)
+        except (TypeError, ValueError, ZeroDivisionError):
+            return None
 
     def _compute_yoy_growth(self, income: dict[str, Any]) -> dict[str, Any]:
         rev = income.get("Total Revenue") if isinstance(income, dict) else None

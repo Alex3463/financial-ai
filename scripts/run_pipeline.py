@@ -214,7 +214,7 @@ def run_single_pipeline(
     fb = FeatureBuilder()
     features = fb.build(snapshot)
     cb = ContextBuilder()
-    context = cb.build(snapshot, features, news_enrichment)
+    context = cb.build(snapshot, features, news_enrichment, artifact_date=date_str)
     write_json(paths["artifacts_dir"] / "context.json", context)
 
     budget = cb.check_token_budget(context)
@@ -236,7 +236,7 @@ def run_single_pipeline(
         _plog("3/5 리포트: Agents (OpenAI Agents SDK)…")
         from agents.orchestrator import run_agent_report
 
-        report_md = run_agent_report(cfg, context)
+        report_md = run_agent_report(cfg, context, artifacts_dir=paths["artifacts_dir"])
         paths["report_md"].write_text(report_md, encoding="utf-8")
     else:
         _plog("3/5 리포트: LLM 단일 호출 (legacy)…")

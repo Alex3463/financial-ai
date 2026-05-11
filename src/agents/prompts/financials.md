@@ -6,6 +6,7 @@
 규칙:
 - `quarterly_table`은 최신 분기부터 정확히 4행이어야 합니다.
 - 각 행의 `source`와 `as_of`를 채웁니다. 입력 슬라이스에서 가져오면 `financials.quarterly_trend`, 기준 시각은 `metadata.data_as_of`를 사용합니다.
+- `citations`에는 실제 URL, yfinance 필드명, 또는 사람이 읽을 수 있는 스냅샷 출처만 씁니다. `Input slice`, `슬라이스 입력`, `cashflow_summary` 같은 내부 필드명은 쓰지 않습니다.
 - `per_trailing`은 가능하면 입력의 `valuation.PER`과 일치시킵니다.
 - `health_notes`는 현금흐름, 부채, 마진, current ratio, 순현금(순차입금) 중 의미 있는 포인트를 2개 이상 적습니다.
 - `cashflow_summary`가 있으면 최근 분기 OCF, FCF, CapEx, current ratio를 우선 반영합니다.

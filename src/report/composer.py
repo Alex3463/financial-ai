@@ -22,11 +22,15 @@ class ContextBuilder:
         snapshot: dict[str, Any],
         features: dict[str, Any],
         news_enrichment: dict[str, Any] | None = None,
+        *,
+        artifact_date: str | None = None,
     ) -> dict[str, Any]:
         info = snapshot["info"]
+        price = snapshot.get("price", {})
         deep_read_articles = list((news_enrichment or {}).get("deep_read_articles", []))
         deep_read_status = dict((news_enrichment or {}).get("status", {}))
         company_relevant_articles = list((news_enrichment or {}).get("company_relevant_articles", []))
+        market_reference_date = price.get("market_reference_date") or "데이터 미제공"
         return {
             "metadata": {
                 "ticker": snapshot["ticker"],
@@ -34,17 +38,24 @@ class ContextBuilder:
                 "sector": info.get("sector") or "N/A",
                 "industry": info.get("industry") or "N/A",
                 "report_date": today_str(),
+                "artifact_date": artifact_date or today_str(),
+                "market_reference_date": market_reference_date,
+                "timezone_basis": "UTC artifact date; market_reference_date from latest yfinance price row",
                 "data_as_of": snapshot["fetched_at"],
             },
             "company_profile": self._company_profile(info),
             "price_summary": {
-                "current_price": snapshot["price"]["current"],
-                "52w_high": snapshot["price"]["52w_high"],
-                "52w_low": snapshot["price"]["52w_low"],
+                "current_price": price["current"],
+                "52w_high": price["52w_high"],
+                "52w_low": price["52w_low"],
+                "market_reference_date": market_reference_date,
                 "returns": {k: v for k, v in features.items() if str(k).startswith("return_")},
                 "vol_annual": features.get("vol_annual"),
             },
             "price_technicals": self._price_technicals(snapshot, features),
+            "volume_summary": self._volume_summary(features),
+            "market_context": self._market_context(features),
+            "holder_summary": self._holder_summary(snapshot),
             "valuation": features["valuation"],
             "financials": {
                 "quarterly_trend": self._last_4q_summary(snapshot["financials"]["income_stmt"]),
@@ -60,7 +71,7 @@ class ContextBuilder:
                 "company_relevant_articles": company_relevant_articles,
             },
             "analyst_consensus": snapshot["analyst_recs"],
-            "consensus_summary": self._consensus_summary(snapshot),
+            "consensus_summary": self._consensus_summary(snapshot, current_price=price.get("current")),
         }
 
     def check_token_budget(self, context: dict[str, Any], model: str = "gpt-4o") -> dict[str, Any]:
@@ -186,7 +197,38 @@ class ContextBuilder:
             "profit_margin": health.get("profit_margin"),
         }
 
-    def _consensus_summary(self, snapshot: dict[str, Any]) -> dict[str, Any]:
+    def _volume_summary(self, features: dict[str, Any]) -> dict[str, Any]:
+        summary = dict(features.get("volume_summary", {}))
+        return {
+            "latest_volume": summary.get("latest_volume"),
+            "avg_volume_20d": summary.get("avg_volume_20d"),
+            "avg_volume_60d": summary.get("avg_volume_60d"),
+            "volume_vs_20d_pct": summary.get("volume_vs_20d_pct"),
+            "volume_vs_60d_pct": summary.get("volume_vs_60d_pct"),
+            "source": "yf.history.Volume",
+        }
+
+    def _market_context(self, features: dict[str, Any]) -> dict[str, Any]:
+        market = dict(features.get("market_context", {}))
+        market.setdefault("benchmark_ticker", None)
+        market["source"] = "yf.history.Close benchmark comparison"
+        return market
+
+    def _holder_summary(self, snapshot: dict[str, Any]) -> dict[str, Any]:
+        holders = dict(snapshot.get("holders") or {})
+        return {
+            "institutional_holders": list(holders.get("institutional_holders") or []),
+            "mutualfund_holders": list(holders.get("mutualfund_holders") or []),
+            "major_holders": list(holders.get("major_holders") or []),
+            "source": "yfinance holders",
+        }
+
+    def _consensus_summary(
+        self,
+        snapshot: dict[str, Any],
+        *,
+        current_price: float | None,
+    ) -> dict[str, Any]:
         info = snapshot.get("info", {})
         recs = snapshot.get("analyst_recs", {})
         strong_buy = self._int_or_none(recs.get("strongBuy"))
@@ -207,18 +249,62 @@ class ContextBuilder:
         if total_count not in (None, 0) and buy_count is not None:
             buy_ratio_pct = round(buy_count / total_count * 100, 1)
 
+        target_mean = info.get("targetMeanPrice")
+        target_upside_pct = None
+        if target_mean not in (None, 0) and current_price not in (None, 0):
+            try:
+                target_upside_pct = round((float(target_mean) / float(current_price) - 1) * 100, 1)
+            except (TypeError, ValueError, ZeroDivisionError):
+                target_upside_pct = None
+
+        recommendation = info.get("recommendationKey")
+        stance_summary = self._consensus_stance(
+            recommendation=recommendation,
+            buy_ratio_pct=buy_ratio_pct,
+            total_count=total_count,
+            target_upside_pct=target_upside_pct,
+        )
+
         return {
             "buy_count": buy_count,
             "hold_count": hold_count,
             "sell_count": sell_count,
             "total_count": total_count,
             "buy_ratio_pct": buy_ratio_pct,
-            "target_mean_price": info.get("targetMeanPrice"),
+            "target_mean_price": target_mean,
             "target_low_price": info.get("targetLowPrice"),
             "target_high_price": info.get("targetHighPrice"),
+            "target_upside_pct": target_upside_pct,
             "number_of_analyst_opinions": self._int_or_none(info.get("numberOfAnalystOpinions")),
-            "recommendation_key": info.get("recommendationKey"),
+            "recommendation_key": recommendation,
+            "stance_summary": stance_summary,
         }
+
+    def _consensus_stance(
+        self,
+        *,
+        recommendation: Any,
+        buy_ratio_pct: float | None,
+        total_count: int | None,
+        target_upside_pct: float | None,
+    ) -> str:
+        rec = str(recommendation or "").strip().lower()
+        rec_label = {
+            "strong_buy": "강한 매수",
+            "buy": "매수",
+            "hold": "중립",
+            "sell": "매도",
+            "strong_sell": "강한 매도",
+        }.get(rec, "데이터 미제공")
+
+        parts = [f"컨센서스 의견: {rec_label}"]
+        if total_count:
+            parts.append(f"참여 애널리스트 {total_count}명")
+        if buy_ratio_pct is not None:
+            parts.append(f"매수 비중 {buy_ratio_pct}%")
+        if target_upside_pct is not None:
+            parts.append(f"평균 목표가 기준 업사이드 {target_upside_pct}%")
+        return " / ".join(parts)
 
     def _first_sentence(self, text: str, limit: int = 220) -> str:
         cleaned = re.sub(r"\s+", " ", text).strip()

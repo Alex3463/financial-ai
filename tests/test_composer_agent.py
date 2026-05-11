@@ -9,7 +9,11 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from agents.composer_agent import _render_quarterly_table  # noqa: E402
+from agents.composer_agent import (  # noqa: E402
+    _build_input,
+    _polish_report_markdown,
+    _render_quarterly_table,
+)
 from agents.schemas import (  # noqa: E402
     ComposerInput,
     FinancialsHealthOutput,
@@ -23,8 +27,8 @@ from agents.schemas import (  # noqa: E402
 
 
 class ComposerAgentFormattingTests(unittest.TestCase):
-    def test_quarterly_table_uses_compact_units(self) -> None:
-        composer_input = ComposerInput(
+    def _composer_input(self) -> ComposerInput:
+        return ComposerInput(
             metadata={"ticker": "AAPL", "company_name": "Apple Inc.", "data_as_of": "2026-05-11"},
             actual_per=35.46,
             valuation=ValuationOutput(
@@ -103,11 +107,47 @@ class ComposerAgentFormattingTests(unittest.TestCase):
             news_summary={},
         )
 
+    def test_quarterly_table_uses_compact_units(self) -> None:
+        composer_input = self._composer_input()
+
         table = _render_quarterly_table(composer_input)
 
         self.assertIn("111.2B", table)
         self.assertIn("35.9B", table)
         self.assertNotIn("111,184,000,000", table)
+
+    def test_composer_input_hides_internal_field_names_from_llm_prompt(self) -> None:
+        composer_input = self._composer_input().model_copy(
+            update={
+                "price_technicals": {"rsi_14": 55.0},
+                "cashflow_summary": {"free_cash_flow": 10.0},
+                "consensus_summary": {"target_mean_price": 210.0},
+            }
+        )
+
+        prompt_input = _build_input(composer_input)
+
+        self.assertNotIn("price_technicals", prompt_input)
+        self.assertNotIn("cashflow_summary", prompt_input)
+        self.assertNotIn("consensus_summary", prompt_input)
+        self.assertIn("price and momentum", prompt_input)
+        self.assertIn("cash-flow quality", prompt_input)
+        self.assertIn("analyst view", prompt_input)
+
+    def test_polish_report_markdown_replaces_schema_label_with_human_label(self) -> None:
+        report = (
+            "### 5. 밸류에이션\n"
+            "- `formula_text`: 목표가 = EPS × PER [출처: 입력: analyst view; valuation analysis formula_text]\n"
+            "- 목표가 [출처: AAPL valuation: trailing PER 35]"
+        )
+
+        polished = _polish_report_markdown(report, data_as_of="2026-05-11T00:00:00Z")
+
+        self.assertIn("산식: 목표가 = EPS × PER", polished)
+        self.assertIn("yfinance analyst view fields, 2026-05-11T00:00:00Z", polished)
+        self.assertIn("yfinance valuation fields, 2026-05-11T00:00:00Z", polished)
+        self.assertNotIn("formula_text", polished)
+        self.assertNotIn("입력:", polished)
 
 
 if __name__ == "__main__":

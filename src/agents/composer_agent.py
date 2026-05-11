@@ -1,9 +1,20 @@
 from __future__ import annotations
 
+import re
+
 from agents.gateway import composer_max_tokens, dump_json, load_prompt_text, run_structured_agent
 from agents.schemas import ComposerInput, ComposerOutput
 
 _PROMPT = load_prompt_text("composer.md")
+_INTERNAL_SOURCE_TOKENS = (
+    "Input slice",
+    "입력 슬라이스",
+    "슬라이스 입력",
+    "price_technicals",
+    "cashflow_summary",
+    "consensus_summary",
+    "financials.health",
+)
 
 
 def _format_number(value: float | None) -> str:
@@ -46,9 +57,47 @@ def _render_per_line(composer_input: ComposerInput) -> str:
     return f"trailing PER 약 {per_value:.2f} [출처: yf.info.trailingPE, {as_of}]"
 
 
+def _sanitize_internal_sources(value: object, *, data_as_of: str) -> object:
+    if isinstance(value, dict):
+        return {
+            key: _sanitize_internal_sources(item, data_as_of=data_as_of)
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_sanitize_internal_sources(item, data_as_of=data_as_of) for item in value]
+    if isinstance(value, str) and any(token in value for token in _INTERNAL_SOURCE_TOKENS):
+        return f"yfinance snapshot fields, {data_as_of}"
+    return value
+
+
+def _build_report_payload(composer_input: ComposerInput) -> dict[str, object]:
+    raw = composer_input.model_dump(mode="json")
+    return {
+        "metadata": raw.get("metadata", {}),
+        "business profile": raw.get("company_profile", {}),
+        "price and momentum": raw.get("price_technicals", {}),
+        "volume trading": raw.get("volume_summary", {}),
+        "benchmark comparison": raw.get("market_context", {}),
+        "ownership and holders": raw.get("holder_summary", {}),
+        "cash-flow quality": raw.get("cashflow_summary", {}),
+        "analyst view": raw.get("consensus_summary", {}),
+        "actual trailing PER": raw.get("actual_per"),
+        "valuation analysis": raw.get("valuation", {}),
+        "financial statement analysis": raw.get("financials", {}),
+        "growth catalyst analysis": raw.get("growth", {}),
+        "risk analysis": raw.get("risk", {}),
+        "company news and deep reads": raw.get("news_summary", {}),
+    }
+
+
 def _build_input(composer_input: ComposerInput) -> str:
     exact_table = _render_quarterly_table(composer_input)
     exact_per_line = _render_per_line(composer_input)
+    raw_payload = _sanitize_internal_sources(
+        composer_input.model_dump(mode="json"),
+        data_as_of=str(composer_input.metadata.get("data_as_of", "")),
+    )
+    payload = _build_report_payload(ComposerInput.model_validate(raw_payload))
     return (
         "다음 구조화 입력만 사용해 ComposerOutput JSON을 생성하세요.\n"
         "report_md 는 완성된 Markdown 리포트 전문이어야 하며 code fence 를 포함하면 안 됩니다.\n\n"
@@ -57,22 +106,70 @@ def _build_input(composer_input: ComposerInput) -> str:
         "Immediately after that table, write this exact trailing PER line:\n"
         f"{exact_per_line}\n\n"
         "Use the supplemental fields for richer content:\n"
-        "- company_profile: 회사 설명 1줄\n"
-        "- price_technicals: 이동평균, RSI, 52주 위치, 수익률\n"
-        "- cashflow_summary: OCF, FCF, CapEx, current ratio, 순현금/순차입금\n"
-        "- consensus_summary: buy/hold/sell 분포와 애널리스트 목표가 범위\n"
-        "- news_summary.company_relevant_articles / deep_read_articles: 회사 관련 기사 우선\n\n"
-        "Reuse the actual citation strings from the input data when you reference evidence.\n\n"
-        f"{dump_json(composer_input.model_dump(mode='json'))}"
+        "- business profile: 회사 설명 1줄\n"
+        "- price and volume indicators: 이동평균, RSI, 52주 위치, 수익률, 거래량 변동\n"
+        "- benchmark comparison: 벤치마크 대비 초과/부진 수익률\n"
+        "- ownership and holders: 기관/펀드 보유자 상위 목록\n"
+        "- cash-flow and quality indicators: OCF, FCF, CapEx, current ratio, 순현금/순차입금\n"
+        "- analyst consensus: buy/hold/sell 분포, 목표가 범위, 평균 목표가 업사이드\n"
+        "- company news and deep reads: 회사 관련 기사 우선\n\n"
+        "Citation policy:\n"
+        "- 출처는 실제 URL, yfinance 필드명, 또는 사람이 읽을 수 있는 테이블/스냅샷 출처만 씁니다.\n"
+        "- 내부 데이터 키나 입력 묶음명은 report_md에 출처로 쓰지 마세요.\n\n"
+        f"{dump_json(payload)}"
     )
 
 
+def _polish_report_markdown(report_md: str, *, data_as_of: str = "") -> str:
+    polished = re.sub(r"`?formula_text`?\s*[:：]\s*", "산식: ", report_md)
+    polished = polished.replace("formula_text", "valuation formula")
+    source_suffix = f", {data_as_of}" if data_as_of else ""
+
+    def rewrite_source(match: re.Match[str]) -> str:
+        source = match.group(1)
+        source = re.sub(
+            r"입력:\s*analyst view",
+            f"yfinance analyst view fields{source_suffix}",
+            source,
+            flags=re.I,
+        )
+        source = re.sub(
+            r"입력:\s*valuation analysis",
+            f"yfinance valuation fields{source_suffix}",
+            source,
+            flags=re.I,
+        )
+        source = re.sub(
+            r"AAPL valuation:[^\];]*",
+            f"yfinance valuation fields{source_suffix}",
+            source,
+            flags=re.I,
+        )
+        source = re.sub(
+            r"입력:\s*[^;\]]+",
+            f"yfinance snapshot fields{source_suffix}",
+            source,
+            flags=re.I,
+        )
+        return f"[출처: {source}]"
+
+    return re.sub(r"\[출처:\s*([^\]]+)\]", rewrite_source, polished)
+
+
 async def run_composer_agent(cfg: dict, composer_input: ComposerInput) -> ComposerOutput:
-    return await run_structured_agent(
+    output = await run_structured_agent(
         cfg=cfg,
         name="ComposerAgent",
         instructions=_PROMPT,
         input_text=_build_input(composer_input),
         output_type=ComposerOutput,
         max_tokens=composer_max_tokens(cfg),
+    )
+    return output.model_copy(
+        update={
+            "report_md": _polish_report_markdown(
+                output.report_md,
+                data_as_of=str(composer_input.metadata.get("data_as_of", "")),
+            )
+        }
     )

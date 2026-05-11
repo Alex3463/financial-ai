@@ -5,6 +5,7 @@
 
 규칙:
 - 숫자나 핵심 사실에는 반드시 `citations`에 근거를 남깁니다.
+- `citations`에는 실제 URL, yfinance 필드명(`yf.info.trailingPE` 등), 또는 사람이 읽을 수 있는 스냅샷 출처만 씁니다. `Input slice`, `슬라이스 입력`, `price_technicals` 같은 내부 필드명은 쓰지 않습니다.
 - `per_trailing`이 입력 슬라이스에 있으면 그 값을 우선 반영하고, 도구로 재확인하더라도 큰 차이가 나면 이유를 근거에 남깁니다.
 - yfinance MCP 도구가 사용 가능하면 trailingPE, forwardPE, 또는 현재가 관련 근거를 한 번 이상 재확인해 최신성을 보강합니다.
 - `formula_text`는 반드시 `목표가 = ...` 형태의 한국어 문장으로 작성합니다.

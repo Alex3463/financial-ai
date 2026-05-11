@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import AsyncExitStack
+from pathlib import Path
 from typing import Any
 
 from agents.composer_agent import run_composer_agent
@@ -14,6 +15,7 @@ from agents.postcheck import validate_report_contract
 from agents.risk_agent import run_risk_agent
 from agents.schemas import ComposerInput
 from agents.valuation_agent import run_valuation_agent
+from fio.storage import write_json
 
 
 def _actual_per(context: dict[str, Any]) -> float | None:
@@ -24,6 +26,33 @@ def _actual_per(context: dict[str, Any]) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _jsonable(value: Any) -> Any:
+    if hasattr(value, "model_dump"):
+        return value.model_dump(mode="json")
+    if isinstance(value, dict):
+        return {key: _jsonable(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_jsonable(item) for item in value]
+    return value
+
+
+def _write_section_artifacts(
+    artifacts_dir: Path,
+    *,
+    slices: dict[str, Any],
+    domain_outputs: dict[str, Any],
+    composer_input: Any,
+    composer_output: Any,
+) -> Path:
+    section_dir = Path(artifacts_dir) / "sections"
+    write_json(section_dir / "context_slices.json", _jsonable(slices))
+    for name, output in domain_outputs.items():
+        write_json(section_dir / f"{name}.json", _jsonable(output))
+    write_json(section_dir / "composer_input.json", _jsonable(composer_input))
+    write_json(section_dir / "composer_output.json", _jsonable(composer_output))
+    return section_dir
 
 
 async def _maybe_enter_server(
@@ -69,7 +98,12 @@ async def _run_domain_agents(
         return valuation, financials, growth, risk
 
 
-async def _run_agent_report_async(cfg: dict[str, Any], context: dict[str, Any]) -> str:
+async def _run_agent_report_async(
+    cfg: dict[str, Any],
+    context: dict[str, Any],
+    *,
+    artifacts_dir: Path | None = None,
+) -> str:
     configure_agents_sdk(cfg)
     slices = split_context(context)
     valuation, financials, growth, risk = await _run_domain_agents(cfg, slices)
@@ -78,6 +112,9 @@ async def _run_agent_report_async(cfg: dict[str, Any], context: dict[str, Any]) 
         metadata=dict(context.get("metadata", {})),
         company_profile=dict(context.get("company_profile", {})),
         price_technicals=dict(context.get("price_technicals", {})),
+        volume_summary=dict(context.get("volume_summary", {})),
+        market_context=dict(context.get("market_context", {})),
+        holder_summary=dict(context.get("holder_summary", {})),
         cashflow_summary=dict(context.get("cashflow_summary", {})),
         consensus_summary=dict(context.get("consensus_summary", {})),
         actual_per=_actual_per(context),
@@ -89,9 +126,31 @@ async def _run_agent_report_async(cfg: dict[str, Any], context: dict[str, Any]) 
     )
     composer_output = await run_composer_agent(cfg, composer_input)
     report_md = composer_output.report_md.strip()
-    validate_report_contract(report_md)
+    if artifacts_dir is not None:
+        _write_section_artifacts(
+            Path(artifacts_dir),
+            slices=slices,
+            domain_outputs={
+                "valuation": valuation,
+                "financials": financials,
+                "growth": growth,
+                "risk": risk,
+            },
+            composer_input=composer_input,
+            composer_output=composer_output,
+        )
+    validate_report_contract(
+        report_md,
+        actual_per=composer_input.actual_per,
+        valuation_formula=composer_input.valuation.formula_text,
+    )
     return report_md + "\n"
 
 
-def run_agent_report(cfg: dict[str, Any], context: dict[str, Any]) -> str:
-    return asyncio.run(_run_agent_report_async(cfg, context))
+def run_agent_report(
+    cfg: dict[str, Any],
+    context: dict[str, Any],
+    *,
+    artifacts_dir: Path | None = None,
+) -> str:
+    return asyncio.run(_run_agent_report_async(cfg, context, artifacts_dir=artifacts_dir))

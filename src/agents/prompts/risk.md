@@ -9,6 +9,7 @@
 - 각 `description`은 320자 이하, 1~2문장으로 씁니다.
 - 설명은 구체적인 하방 메커니즘과 핵심 관찰 포인트가 드러나게 압축합니다.
 - `news_summary.deep_read_articles`가 있으면 해당 기사 digest와 URL을 우선 근거로 사용합니다.
+- `citations`에는 실제 URL, yfinance 필드명, 또는 사람이 읽을 수 있는 스냅샷 출처만 씁니다. `Input slice`, `슬라이스 입력`, `price_technicals` 같은 내부 필드명은 쓰지 않습니다.
 - 회사 고유 뉴스가 없으면 `price_technicals`, `cashflow_summary`, `valuation`, `financials.health`, `consensus_summary`를 활용해 회사 수치와 연결된 리스크를 쓰고, 막연한 거시 리스크 나열을 피하세요.
 - yfinance MCP 도구가 사용 가능하면 최근 뉴스나 현재 밸류에이션 관련 정보를 한 번 이상 조회해 리스크 근거를 보강합니다.
 - JSON 외의 텍스트는 출력하지 않습니다.

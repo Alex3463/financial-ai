@@ -22,6 +22,9 @@ uv run scripts/run_pipeline.py --ticker AAPL
 # 개발 중 빠른 검증 — LLM 없이 스텁 리포트로 나머지 단계만 점검
 uv run scripts/run_pipeline.py --ticker AAPL --skip-llm
 
+# 단위 테스트 — 프로젝트 .venv 안의 pytest 사용
+uv run python -m pytest -q
+
 # 배치
 uv run scripts/run_pipeline.py --tickers AAPL,MSFT,GOOG
 uv run scripts/run_pipeline.py --tickers-file tickers.txt
@@ -39,7 +42,7 @@ uv remove <패키지>
 uv lock --upgrade-package <패키지>
 ```
 
-테스트 프레임워크는 없습니다. 코드 변경 후 검증 루프는 **`--skip-llm` 으로 한 티커 돌려서 `artifacts/<TICKER>/<날짜>/{snapshot,context,eval,signal}.json` 가 생성되는지 확인** → LLM 경로가 영향받는 변경이면 키 있는 환경에서 LLM 모드로 한 번 더 돌리는 것입니다.
+테스트는 **`uv run python -m pytest -q`** 로 실행합니다. 코드 변경 후 검증 루프는 테스트 통과 → **`--skip-llm` 으로 한 티커 돌려서 `artifacts/<TICKER>/<날짜>/{snapshot,context,eval,signal}.json` 가 생성되는지 확인** → LLM 경로가 영향받는 변경이면 키 있는 환경에서 LLM 모드로 한 번 더 돌리는 것입니다.
 
 > 의존성·Python 버전의 단일 출처는 **`pyproject.toml`** + **`uv.lock`** 입니다. `requirements.txt` 는 더 이상 사용하지 않습니다 (제거됨). `uv.lock` 은 커밋 대상이며, `.venv/` 는 `.gitignore` 처리되어 있습니다.
 

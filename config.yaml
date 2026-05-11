@@ -17,7 +17,7 @@ agents:
   parallel: true
   tools_enabled: true
   per_agent_max_tokens: 1500
-  composer_max_tokens: 3500
+  composer_max_tokens: 6500
 
 mcp:
   yfinance:

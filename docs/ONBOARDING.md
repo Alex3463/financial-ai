@@ -29,6 +29,7 @@ uv run scripts/run_pipeline.py --ticker <티커>
 | `run_pipeline.py --list-models` | 위와 동일 목적을 플래그로 처리 |
 
 개발·디버깅 시 **`--skip-llm`** 으로 LLM 없이 나머지 단계만 돌릴 수 있습니다.
+- 단위 테스트는 **`uv run python -m pytest -q`** 로 실행합니다. 이 명령은 `pyproject.toml`의 dev dependency group에 고정된 프로젝트 `.venv`의 pytest를 사용합니다.
 - 배치: **`--tickers`** 또는 **`--tickers-file`**
 - 배치(공백 나열): **`--ticker AAPL TSLA NVDA`**
 - Judge(M2): config의 `eval.use_llm_judge: true` 또는 **`--judge`** / **`--no-judge`**
@@ -147,7 +148,8 @@ uv run scripts/run_pipeline.py --ticker <티커>
 
 ## 8. 체크리스트 (신규 팀원 첫날)
 
-- [ ] `uv sync` 후 `uv run scripts/run_pipeline.py --ticker AAPL --skip-llm` 성공
+- [ ] `uv sync` 후 `uv run python -m pytest -q` 성공
+- [ ] `uv run scripts/run_pipeline.py --ticker AAPL --skip-llm` 성공
 - [ ] `artifacts/`, `reports/` 에 파일 생기는지 확인
 - [ ] deep-read 실패가 있으면 `artifacts/AAPL/<날짜>/news_enrichment.json`의 `failures[].error` 확인
 - [ ] Agents 리포트 중 yfinance MCP 경고가 보이면 `config.yaml`의 `mcp.yfinance` timeout/retry와 `uvx` 실행 가능 여부 확인

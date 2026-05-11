@@ -68,6 +68,9 @@ class ComposerInput(StrictModel):
     metadata: dict[str, Any]
     company_profile: dict[str, Any] = Field(default_factory=dict)
     price_technicals: dict[str, Any] = Field(default_factory=dict)
+    volume_summary: dict[str, Any] = Field(default_factory=dict)
+    market_context: dict[str, Any] = Field(default_factory=dict)
+    holder_summary: dict[str, Any] = Field(default_factory=dict)
     cashflow_summary: dict[str, Any] = Field(default_factory=dict)
     consensus_summary: dict[str, Any] = Field(default_factory=dict)
     actual_per: float | None = None

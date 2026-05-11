@@ -104,15 +104,58 @@ class ReportContextTests(unittest.TestCase):
             ],
         }
 
-        context = ContextBuilder().build(snapshot, features, enrichment)
+        snapshot["price"]["market_reference_date"] = "2026-05-08"
+        snapshot["price"]["daily_volume"] = {
+            "2026-05-07": 1000.0,
+            "2026-05-08": 1500.0,
+        }
+        snapshot["price"]["benchmark_ticker"] = "^GSPC"
+        snapshot["holders"] = {
+            "institutional_holders": [
+                {
+                    "holder": "Example Capital",
+                    "shares": 123456.0,
+                    "value": 9876543.0,
+                    "pct_held": 0.01,
+                }
+            ],
+            "mutualfund_holders": [],
+            "major_holders": [],
+        }
+        features["volume_summary"] = {
+            "latest_volume": 1500.0,
+            "avg_volume_20d": 1200.0,
+            "volume_vs_20d_pct": 25.0,
+        }
+        features["market_context"] = {
+            "benchmark_ticker": "^GSPC",
+            "benchmark_return_1m": 2.5,
+            "stock_return_1m": 4.0,
+            "excess_return_1m": 1.5,
+        }
+
+        context = ContextBuilder().build(
+            snapshot,
+            features,
+            enrichment,
+            artifact_date="2026-05-11",
+        )
 
         self.assertEqual(context["news_summary"]["recent_headlines"], ["Apple launches new AI feature"])
+        self.assertEqual(context["metadata"]["artifact_date"], "2026-05-11")
+        self.assertEqual(context["metadata"]["market_reference_date"], "2026-05-08")
+        self.assertEqual(context["metadata"]["timezone_basis"], "UTC artifact date; market_reference_date from latest yfinance price row")
         self.assertEqual(len(context["news_summary"]["deep_read_articles"]), 1)
         self.assertEqual(context["news_summary"]["deep_read_status"]["deep_read_count"], 1)
         self.assertEqual(context["company_profile"]["website"], "https://apple.com")
         self.assertEqual(context["price_technicals"]["ma_20"], 98.0)
+        self.assertEqual(context["volume_summary"]["latest_volume"], 1500.0)
+        self.assertEqual(context["market_context"]["benchmark_ticker"], "^GSPC")
+        self.assertEqual(context["holder_summary"]["institutional_holders"][0]["holder"], "Example Capital")
         self.assertEqual(context["cashflow_summary"]["current_ratio"], 2.0)
         self.assertEqual(context["consensus_summary"]["buy_count"], 15)
+        self.assertEqual(context["consensus_summary"]["target_upside_pct"], 110.0)
+        self.assertIn("매수", context["consensus_summary"]["stance_summary"])
         self.assertEqual(len(context["news_summary"]["company_relevant_articles"]), 1)
 
     def test_context_builder_handles_missing_supporting_data(self) -> None:
@@ -140,9 +183,14 @@ class ReportContextTests(unittest.TestCase):
             "sentiment": {"positive": 0, "negative": 0, "neutral": 0, "keywords": []},
         }
 
-        context = ContextBuilder().build(snapshot, features, None)
+        context = ContextBuilder().build(snapshot, features, None, artifact_date="2026-05-11")
 
         self.assertEqual(context["news_summary"]["company_relevant_articles"], [])
+        self.assertEqual(context["metadata"]["artifact_date"], "2026-05-11")
+        self.assertEqual(context["metadata"]["market_reference_date"], "데이터 미제공")
+        self.assertEqual(context["volume_summary"]["latest_volume"], None)
+        self.assertEqual(context["holder_summary"]["institutional_holders"], [])
+        self.assertEqual(context["market_context"]["benchmark_ticker"], None)
         self.assertIsNone(context["cashflow_summary"]["current_ratio"])
         self.assertEqual(context["company_profile"]["industry"], "Software")
 
