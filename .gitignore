@@ -9,6 +9,8 @@ api_guide/.env
 api_guide/llm_credentials.txt
 .venv/
 venv/
+.playwright-mcp/
+.playwright-mcp-test/
 
 # gh CLI local auth cache
 .ghconfig/

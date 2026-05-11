@@ -13,6 +13,7 @@ def _build_input(context_slice: dict[str, Any]) -> str:
     return (
         "다음 growth 슬라이스만 사용해 GrowthNewsOutput JSON을 생성하세요.\n"
         "drivers 는 2~3개여야 하며, 각 숫자나 사실 판단에는 citations 를 붙이세요.\n"
+        "news_summary.deep_read_articles 가 있으면 raw headline 보다 그 기사 요약과 URL 근거를 우선 사용하세요.\n"
         "필요할 때만 yfinance MCP 도구를 사용하세요.\n\n"
         f"{dump_json(context_slice)}"
     )

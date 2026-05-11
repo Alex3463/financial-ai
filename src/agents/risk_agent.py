@@ -13,6 +13,7 @@ def _build_input(context_slice: dict[str, Any]) -> str:
     return (
         "다음 risk 슬라이스만 사용해 RiskOutput JSON을 생성하세요.\n"
         "가능하면 경쟁/규제/금리/환율/멀티플/실적 카테고리를 넓게 커버하세요.\n"
+        "news_summary.deep_read_articles 가 있으면 raw headline 보다 그 기사 요약과 URL 근거를 우선 사용하세요.\n"
         "필요할 때만 yfinance MCP 도구를 사용하세요.\n\n"
         f"{dump_json(context_slice)}"
     )

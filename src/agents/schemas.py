@@ -71,6 +71,7 @@ class ComposerInput(StrictModel):
     financials: FinancialsHealthOutput
     growth: GrowthNewsOutput
     risk: RiskOutput
+    news_summary: dict[str, Any] = Field(default_factory=dict)
 
 
 class ComposerOutput(StrictModel):

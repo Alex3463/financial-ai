@@ -77,6 +77,7 @@ async def _run_agent_report_async(cfg: dict[str, Any], context: dict[str, Any]) 
         financials=financials,
         growth=growth,
         risk=risk,
+        news_summary=dict(context.get("news_summary", {})),
     )
     composer_output = await run_composer_agent(cfg, composer_input)
     report_md = composer_output.report_md.strip()

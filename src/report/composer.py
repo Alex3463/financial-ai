@@ -16,8 +16,15 @@ def today_str() -> str:
 class ContextBuilder:
     TOKEN_LIMIT = 5000
 
-    def build(self, snapshot: dict[str, Any], features: dict[str, Any]) -> dict[str, Any]:
+    def build(
+        self,
+        snapshot: dict[str, Any],
+        features: dict[str, Any],
+        news_enrichment: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         info = snapshot["info"]
+        deep_read_articles = list((news_enrichment or {}).get("deep_read_articles", []))
+        deep_read_status = dict((news_enrichment or {}).get("status", {}))
         return {
             "metadata": {
                 "ticker": snapshot["ticker"],
@@ -43,6 +50,8 @@ class ContextBuilder:
             "news_summary": {
                 "recent_headlines": [n.get("title", "") for n in snapshot["news"][:5]],
                 "sentiment": features["sentiment"],
+                "deep_read_articles": deep_read_articles,
+                "deep_read_status": deep_read_status,
             },
             "analyst_consensus": snapshot["analyst_recs"],
         }

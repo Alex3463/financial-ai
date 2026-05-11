@@ -48,6 +48,69 @@ def _df_to_nested_dict(df: pd.DataFrame | None) -> dict[str, dict[str, float]]:
     return result
 
 
+def _first_str(*values: Any) -> str:
+    for value in values:
+        if isinstance(value, str):
+            text = value.strip()
+            if text:
+                return text
+    return ""
+
+
+def _published_date_str(pub_date: Any, ts: Any) -> str:
+    if isinstance(pub_date, str):
+        text = pub_date.strip()
+        if text:
+            try:
+                return datetime.fromisoformat(text.replace("Z", "+00:00")).strftime("%Y-%m-%d")
+            except ValueError:
+                if len(text) >= 10:
+                    return text[:10]
+    if isinstance(ts, (int, float)) and ts > 0:
+        try:
+            return datetime.fromtimestamp(ts).strftime("%Y-%m-%d")
+        except (OSError, OverflowError, ValueError):
+            return ""
+    return ""
+
+
+def _normalize_news_item(raw_item: dict[str, Any]) -> dict[str, str] | None:
+    content = raw_item.get("content") if isinstance(raw_item.get("content"), dict) else {}
+    provider = content.get("provider") if isinstance(content.get("provider"), dict) else {}
+    canonical = (
+        content.get("canonicalUrl") if isinstance(content.get("canonicalUrl"), dict) else {}
+    )
+    clickthrough = (
+        content.get("clickThroughUrl") if isinstance(content.get("clickThroughUrl"), dict) else {}
+    )
+
+    title = _first_str(content.get("title"), raw_item.get("title"))
+    publisher = _first_str(provider.get("displayName"), raw_item.get("publisher"))
+    link = _first_str(
+        clickthrough.get("url"),
+        canonical.get("url"),
+        raw_item.get("link"),
+    )
+    summary = _first_str(
+        content.get("summary"),
+        content.get("description"),
+        raw_item.get("summary"),
+        raw_item.get("description"),
+    )
+    published = _published_date_str(content.get("pubDate"), raw_item.get("providerPublishTime"))
+
+    if not any((title, publisher, link, summary)):
+        return None
+
+    return {
+        "title": title,
+        "publisher": publisher,
+        "published": published,
+        "link": link,
+        "summary": summary,
+    }
+
+
 class YahooIngester:
     def fetch(self, ticker: str, config: dict[str, Any]) -> dict[str, Any]:
         ingest_cfg = config.get("ingest", {})
@@ -85,29 +148,10 @@ class YahooIngester:
         try:
             raw_news = yf_obj.news or []
             for n in raw_news[:news_count]:
-                title = (n.get("title") or "").strip()
-                publisher = (n.get("publisher") or "").strip()
-                link = (n.get("link") or "").strip()
-                ts = n.get("providerPublishTime")
-
-                # yfinance가 차단/실패 시 빈 title/publisher 및 epoch(0) 값을 주는 경우가 있어 필터링
-                if not title and not publisher and not link:
+                normalized = _normalize_news_item(n)
+                if normalized is None:
                     continue
-
-                pub = ""
-                if isinstance(ts, (int, float)) and ts > 0:
-                    try:
-                        pub = datetime.fromtimestamp(ts).strftime("%Y-%m-%d")
-                    except (OSError, OverflowError, ValueError):
-                        pub = ""
-                news_list.append(
-                    {
-                        "title": title,
-                        "publisher": publisher,
-                        "published": pub,
-                        "link": link,
-                    }
-                )
+                news_list.append(normalized)
         except Exception:
             news_list = []
 

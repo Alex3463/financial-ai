@@ -32,6 +32,13 @@ uv run scripts/run_pipeline.py --ticker AAPL
 > `uv` 가 없다면 [uv 설치 가이드](https://docs.astral.sh/uv/getting-started/installation/)를 참고하세요 (`brew install uv` 또는 `curl -LsSf https://astral.sh/uv/install.sh | sh`).
 > `.venv` 를 직접 활성화하고 싶다면 `source .venv/bin/activate` 후 `python scripts/run_pipeline.py …` 도 동일하게 동작합니다.
 
+### 실행 전제 조건
+
+- **Python 의존성**: `uv sync`가 `pyproject.toml` / `uv.lock` 기준으로 설치합니다. 뉴스 HTML→Markdown 변환에 필요한 `markdownify`도 여기 포함됩니다.
+- **Node.js / `npx`**: 심층 뉴스 읽기(deep-read)는 `Playwright MCP`를 `npx @playwright/mcp@latest`로 실행합니다. 따라서 **Node.js와 `npx`가 PATH에 있어야** 합니다.
+- **`uvx`**: `agents` 모드에서 `yfinance` MCP를 띄울 때 사용합니다. 일반적으로 `uv` 설치 시 같이 제공됩니다.
+- **첫 deep-read 실행**: `npx`가 `@playwright/mcp` 패키지를 내려받을 수 있어야 하므로, 첫 실행은 이후 실행보다 조금 더 오래 걸릴 수 있습니다.
+
 기본값으로 오늘 날짜(UTC) 폴더에 산출물이 생깁니다.
 
 실행 중 콘솔에는 **`[pipeline]`** 접두사로 단계(1/5~5/5)·주요 분기(`--skip-llm` / LLM)·저장 경로 요약이 출력됩니다.
@@ -60,9 +67,10 @@ uv run scripts/run_pipeline.py --ticker AAPL
 | 순서 | 내용 | 산출물 |
 |------|------|--------|
 | 1 | 가격·재무·뉴스·추천 수집 | `artifacts/<티커>/<날짜>/snapshot.json` |
-| 2 | 피처·컨텍스트 구성 → LLM 리포트 | `reports/<티커>/<날짜>.md`, `context.json` |
-| 3 | 규칙 기반 평가(M0) + (선택) LLM Judge(M2) | `artifacts/.../eval.json` |
-| 4 | 신호 스텁·예측 로그 한 줄 | `artifacts/.../signal.json`, `tracking/prediction_log.csv` |
+| 2 | 영향도 높은 뉴스 심층 읽기 → Markdown 저장 → 기사 digest 생성 | `artifacts/<티커>/<날짜>/news/*.md`, `news_enrichment.json` |
+| 3 | 피처·컨텍스트 구성 → LLM 리포트 | `reports/<티커>/<날짜>.md`, `context.json` |
+| 4 | 규칙 기반 평가(M0) + (선택) LLM Judge(M2) | `artifacts/.../eval.json` |
+| 5 | 신호 스텁·예측 로그 한 줄 | `artifacts/.../signal.json`, `tracking/prediction_log.csv` |
 
 ---
 
@@ -71,6 +79,7 @@ uv run scripts/run_pipeline.py --ticker AAPL
 - **`llm.model`**: 사용할 모델 ID (게이트웨이에서 실제 호출 가능한 이름이어야 함).
 - **`llm.base_url`**: OpenAI 호환 Chat Completions 베이스 URL.
 - **`llm.api_key_env`**: 기본 `OPENAI_API_KEY` (환경변수가 가장 우선).
+- **`mcp.playwright`**: deep-read용 `Playwright MCP` 실행 커맨드/timeout 설정. 기본값은 `npx @playwright/mcp@latest --headless --isolated` 계열입니다.
 - **키 설정(단일 방식)**: **오직 `.env`로만 설정**합니다. `financial-ai/.env` 또는 `financial-ai/api_guide/.env` 중 하나에 `OPENAI_API_KEY=...` 를 넣으세요.
 
 모델은 키·계정에 따라 일부만 허용될 수 있습니다. 목록은 아래 명령으로 확인하세요.
@@ -150,6 +159,7 @@ financial-ai/
 │   └── list_gateway_models.py
 ├── src/
 │   ├── ingest/yahoo.py
+│   ├── news/enrichment.py
 │   ├── features/builder.py
 │   ├── report/composer.py
 │   ├── report/llm.py
@@ -169,6 +179,12 @@ financial-ai/
 ---
 
 ## 문제 해결
+
+- **`npx: command not found` / Playwright MCP 실행 실패**
+  deep-read 기능은 Node.js의 `npx`가 필요합니다. Node.js를 설치한 뒤 `npx @playwright/mcp@latest --help` 가 동작하는지 먼저 확인하세요.
+
+- **첫 실행에서 뉴스 심층 읽기가 느림**
+  `npx`가 `@playwright/mcp` 패키지를 내려받는 첫 실행일 수 있습니다. 이후 실행은 더 빨라집니다.
 
 - **`403` / `"error code: 1010"`**  
   일부 게이트웨이는 비브라우저 클라이언트를 차단합니다. 이 프로젝트의 `report/llm.py`는 OpenAI SDK 요청에 브라우저형 `User-Agent`를 넣습니다. 필요 시 **`FINANCIAL_AI_USER_AGENT`** 로 변경 가능합니다.

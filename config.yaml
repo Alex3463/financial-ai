@@ -24,6 +24,16 @@ mcp:
     command: "uvx"
     args: ["--python", "3.12", "yfmcp@0.11.1"]
     env: {}
+  playwright:
+    command: "npx"
+    args: ["@playwright/mcp@latest"]
+    env: {}
+    client_session_timeout_seconds: 30
+    max_retry_attempts: 1
+    timeout_navigation_ms: 30000
+    timeout_action_ms: 15000
+    wait_after_navigation_sec: 1.0
+    output_dir: ".playwright-mcp"
 
 ingest:
   price_period: "1y"

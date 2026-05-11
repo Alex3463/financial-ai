@@ -26,6 +26,7 @@ from eval.rubric import aggregate
 from eval.rules import run_all_checks
 from features.builder import FeatureBuilder
 from ingest.yahoo import YahooIngester
+from news.enrichment import enrich_news
 from fio.storage import append_prediction_row, write_json
 from report.composer import ContextBuilder, compose_markdown_report, today_str
 from report.llm import LLMProvider, write_gateway_models_log
@@ -190,12 +191,29 @@ def run_single_pipeline(
     snapshot = ingester.fetch(ticker, cfg)
     write_json(paths["artifacts_dir"] / "snapshot.json", snapshot)
     _plog(f"  → snapshot.json 저장 (종가≈{snapshot['price']['current']})")
+    news_enrichment = enrich_news(
+        cfg,
+        ticker=ticker,
+        news_items=list(snapshot.get("news", [])),
+        artifacts_dir=paths["artifacts_dir"],
+        use_llm_summary=not args.skip_llm,
+    )
+    status = news_enrichment.get("status", {})
+    _plog(
+        "  → 뉴스 심층 읽기: "
+        f"{status.get('deep_read_count', 0)}/{status.get('selected_count', 0)}건 성공"
+        + (
+            f", 실패 {status.get('failed_count', 0)}건"
+            if status.get("failed_count", 0)
+            else ""
+        )
+    )
 
     _plog("2/5 피처·컨텍스트…")
     fb = FeatureBuilder()
     features = fb.build(snapshot)
     cb = ContextBuilder()
-    context = cb.build(snapshot, features)
+    context = cb.build(snapshot, features, news_enrichment)
     write_json(paths["artifacts_dir"] / "context.json", context)
 
     budget = cb.check_token_budget(context)
