@@ -3,7 +3,7 @@ name = "financial-ai"
 version = "0.1.0"
 description = "Yahoo Finance → LLM 리포트 → 규칙·Judge 평가 → 신호 스텁 파이프라인"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
     "yfinance>=0.2.36",
     "pandas>=2.0",
@@ -14,6 +14,7 @@ dependencies = [
     "jinja2>=3.1",
     "tiktoken>=0.5",
     "pyyaml>=6.0",
+    "openai-agents==0.17.1",
 ]
 
 [tool.uv]

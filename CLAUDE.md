@@ -13,7 +13,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## 자주 쓰는 명령
 
 ```bash
-# 환경 — uv 가 .python-version(3.11) 기준으로 .venv 를 만들고 의존성을 설치합니다.
+# 환경 — uv 가 .python-version(3.12) 기준으로 .venv 를 만들고 의존성을 설치합니다.
 uv sync
 
 # 단일 티커 end-to-end (LLM 호출 포함)

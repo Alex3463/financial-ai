@@ -208,12 +208,19 @@ def run_single_pipeline(
     prompts_dir = prompts_rel if prompts_rel.is_absolute() else ROOT / prompts_rel
 
     llm_report: LLMProvider | None = None
+    llm_mode = (cfg.get("llm", {}).get("mode") or "agents").lower()
     if args.skip_llm:
         _plog("3/5 리포트: 분기 → --skip-llm, 내장 스텁 Markdown 사용")
         report_md = _stub_report(ticker, context)
         paths["report_md"].write_text(report_md, encoding="utf-8")
+    elif llm_mode == "agents":
+        _plog("3/5 리포트: Agents (OpenAI Agents SDK)…")
+        from agents.orchestrator import run_agent_report
+
+        report_md = run_agent_report(cfg, context)
+        paths["report_md"].write_text(report_md, encoding="utf-8")
     else:
-        _plog("3/5 리포트: 분기 → LLM 생성 (Jinja + API)…")
+        _plog("3/5 리포트: LLM 단일 호출 (legacy)…")
         llm_report = LLMProvider(cfg)
         report_md = compose_markdown_report(llm_report, prompts_dir, context)
         paths["report_md"].write_text(report_md, encoding="utf-8")

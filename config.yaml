@@ -1,4 +1,5 @@
 llm:
+  mode: "agents"
   provider: "openai"
   # 게이트웨이 GET /v1/gateway/models/ 목록 중, 본 키로 접근 가능한 모델을 쓰세요.
   # 예: gpt-5.4-mini, gpt-5.3-chat-latest, claude-sonnet-4-5-20250929 (claude-sonnet-4-6 는 미지원 시 403)
@@ -11,6 +12,18 @@ llm:
   # - financial-ai/.env
   # - financial-ai/api_guide/.env
   api_key_file: null
+
+agents:
+  parallel: true
+  tools_enabled: true
+  per_agent_max_tokens: 1500
+  composer_max_tokens: 3500
+
+mcp:
+  yfinance:
+    command: "uvx"
+    args: ["--python", "3.12", "yfmcp@0.11.1"]
+    env: {}
 
 ingest:
   price_period: "1y"

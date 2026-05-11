@@ -12,7 +12,7 @@
 uv run scripts/run_pipeline.py --ticker <티커>
 ```
 
-> 첫 실행 전에는 `uv sync` 한 번이면 의존성·`.venv`·Python(3.11)이 모두 준비됩니다.
+> 첫 실행 전에는 `uv sync` 한 번이면 의존성·`.venv`·Python(3.12)이 모두 준비됩니다.
 
 - 모든 단계(수집 → 피처 → 리포트 → 평가 → 신호 → CSV 로그)는 **`scripts/run_pipeline.py`가 순서대로 호출**합니다.
 - 콘솔 **`[pipeline]`** 로그로 1/5~5/5 진행·`--skip-llm` vs LLM 분기·저장 경로를 요약합니다.
