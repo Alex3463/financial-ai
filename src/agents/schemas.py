@@ -89,3 +89,39 @@ class ComposerInput(StrictModel):
 class ComposerOutput(StrictModel):
     opinion: InvestmentOpinion
     report_md: str
+
+
+# ---------------------------
+# ETF / fund-like assets
+# ---------------------------
+
+
+class EtfHolding(StrictModel):
+    name: str | None = None
+    ticker: str | None = None
+    weight_pct: float | None = None
+    notes: str | None = None
+    citations: list[str] = Field(min_length=1)
+
+
+class EtfHoldingsOutput(StrictModel):
+    asset_type: Literal["ETF", "FUND", "ETN", "MUTUALFUND", "UNKNOWN"]
+    holdings_as_of: str | None = None
+    top_holdings: list[EtfHolding] = Field(min_length=0, max_length=15)
+    concentration_note: str
+    data_availability: Literal["ok", "partial", "missing"]
+    citations: list[str] = Field(min_length=1)
+
+
+class EtfComposerInput(StrictModel):
+    metadata: dict[str, Any]
+    company_profile: dict[str, Any] = Field(default_factory=dict)
+    price_technicals: dict[str, Any] = Field(default_factory=dict)
+    volume_summary: dict[str, Any] = Field(default_factory=dict)
+    market_context: dict[str, Any] = Field(default_factory=dict)
+    holdings: EtfHoldingsOutput
+    news_summary: dict[str, Any] = Field(default_factory=dict)
+
+
+class EtfComposerOutput(StrictModel):
+    report_md: str

@@ -8,14 +8,23 @@ from typing import Any
 from agents.composer_agent import run_composer_agent
 from agents.context_slicer import split_context
 from agents.financials_agent import run_financials_agent
+from agents.holdings_agent import run_holdings_agent
+from agents.etf_composer_agent import run_etf_composer_agent
 from agents.gateway import configure_agents_sdk
 from agents.growth_agent import run_growth_agent
 from agents.mcp_servers import make_yfinance_server
-from agents.postcheck import validate_report_contract
+from agents.postcheck import validate_etf_report_contract, validate_report_contract
 from agents.risk_agent import run_risk_agent
-from agents.schemas import ComposerInput
+from agents.schemas import ComposerInput, EtfComposerInput
 from agents.valuation_agent import run_valuation_agent
 from fio.storage import write_json
+
+ETF_LIKE_ASSET_TYPES = {"ETF", "FUND", "MUTUALFUND", "ETN"}
+
+
+def _is_etf_like(context: dict[str, Any]) -> bool:
+    asset_type = str((context.get("metadata") or {}).get("asset_type") or "").strip().upper()
+    return asset_type in ETF_LIKE_ASSET_TYPES
 
 
 def _actual_per(context: dict[str, Any]) -> float | None:
@@ -106,6 +115,39 @@ async def _run_agent_report_async(
 ) -> str:
     configure_agents_sdk(cfg)
     slices = split_context(context)
+
+    if _is_etf_like(context):
+        async with AsyncExitStack() as exit_stack:
+            holdings_server = await _maybe_enter_server(exit_stack, cfg, name="yfinance-holdings")
+            # Reuse risk agent for now; prompt specialization can be added later.
+            risk_server = await _maybe_enter_server(exit_stack, cfg, name="yfinance-risk")
+
+            holdings = await run_holdings_agent(cfg, slices["etf"], mcp_server=holdings_server)
+            risk = await run_risk_agent(cfg, slices["risk"], mcp_server=risk_server)
+
+        etf_input = EtfComposerInput(
+            metadata=dict(context.get("metadata", {})),
+            company_profile=dict(context.get("company_profile", {})),
+            price_technicals=dict(context.get("price_technicals", {})),
+            volume_summary=dict(context.get("volume_summary", {})),
+            market_context=dict(context.get("market_context", {})),
+            holdings=holdings,
+            news_summary=dict(context.get("news_summary", {})),
+        )
+        etf_output = await run_etf_composer_agent(cfg, etf_input)
+        report_md = etf_output.report_md.strip()
+
+        if artifacts_dir is not None:
+            section_dir = Path(artifacts_dir) / "sections"
+            write_json(section_dir / "context_slices.json", _jsonable(slices))
+            write_json(section_dir / "holdings.json", _jsonable(holdings))
+            write_json(section_dir / "risk.json", _jsonable(risk))
+            write_json(section_dir / "composer_input.json", _jsonable(etf_input))
+            write_json(section_dir / "composer_output.json", _jsonable(etf_output))
+
+        validate_etf_report_contract(report_md)
+        return report_md + "\n"
+
     valuation, financials, growth, risk = await _run_domain_agents(cfg, slices)
 
     composer_input = ComposerInput(

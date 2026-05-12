@@ -141,6 +141,51 @@ def validate_report_contract(
     _validate_extended_contract(report_md, actual_per=actual_per, valuation_formula=valuation_formula)
 
 
+ETF_REQUIRED_HEADERS = [
+    "### 1. ETF 요약",
+    "### 2. 상위 보유종목/구성",
+    "### 3. 운용 구조·비용",
+    "### 4. 리스크(괴리·유동성·집중도)",
+    "### 5. 시장/모멘텀(가격·거래량·VIX)",
+    "### 6. 투자 전략(투자자별)",
+]
+
+
+def validate_etf_report_contract(report_md: str) -> None:
+    if not re.search(r"^# .+ ETF 분석 리포트\s*$", report_md, re.M):
+        raise ValueError("ETF report is missing the required title line.")
+    for pattern in INTERNAL_SOURCE_PATTERNS:
+        if re.search(pattern, report_md, re.I):
+            raise ValueError("ETF report contains internal source leakage.")
+
+    positions: list[int] = []
+    for header in ETF_REQUIRED_HEADERS:
+        pos = report_md.find(header)
+        if pos < 0:
+            raise ValueError(f"ETF report is missing required header: {header}")
+        positions.append(pos)
+    if positions != sorted(positions):
+        raise ValueError("ETF report headers are not in the expected order.")
+
+    # Holdings section should include at least a basic table header, unless explicitly marked missing.
+    sec2 = re.search(
+        r"^### 2\.\s*상위 보유종목/구성[^\n]*\n(.*?)(?=^###\s*\d+\.|\Z)",
+        report_md,
+        re.M | re.S,
+    )
+    if not sec2:
+        raise ValueError("ETF holdings section could not be extracted for postcheck.")
+    sec2_text = sec2.group(1)
+    has_table = "| 순위 |" in sec2_text or "| 종목 |" in sec2_text
+    has_missing_note = "데이터 미제공" in sec2_text
+    if not (has_table or has_missing_note):
+        raise ValueError("ETF holdings section must include a holdings table or an explicit missing note.")
+
+    # Require at least one citation overall (risk section should usually contain it)
+    if not re.search(SOURCE_CITATION, report_md):
+        raise ValueError("ETF report is missing citations.")
+
+
 def _validate_extended_contract(
     report_md: str,
     *,

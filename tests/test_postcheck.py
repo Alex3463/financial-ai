@@ -10,6 +10,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from agents.postcheck import validate_report_contract  # noqa: E402
+from agents.postcheck import validate_etf_report_contract  # noqa: E402
 
 
 VALID_REPORT = """# AAPL (Apple Inc.) 투자 분석 리포트
@@ -60,6 +61,43 @@ trailing PER 약 35.32 [출처: yf.info.trailingPE, 2026-05-11T14:14:19Z]
 | 신규 진입자 | 분할 접근 |
 | 기존 보유자 | 보유 |
 - 12개월 관점 중립입니다.
+"""
+
+
+VALID_ETF_REPORT = """# SPY (SPDR S&P 500 ETF Trust) ETF 분석 리포트
+
+### 1. ETF 요약
+| 항목 | 내용 |
+|---|---|
+| ETF 성격 | 미국 대형주 지수 추종 |
+| 현재가/기준일 | 500.0달러 / 2026-05-11 |
+| 핵심 테마 | 지수 분산 |
+| 데이터 가용성 | holdings ok |
+| 지금 봐야 할 이벤트 | CPI |
+
+### 2. 상위 보유종목/구성
+| 순위 | 종목 | 티커 | 비중 | 비고 |
+|---:|---|---|---:|---|
+| 1 | Apple | AAPL | 7.00% |  |
+| 2 | Microsoft | MSFT | 6.50% |  |
+집중도: 상위 10개 비중이 높아 상위 종목 변동이 ETF에 영향 [출처: https://example.com/holdings]
+
+### 3. 운용 구조·비용
+- 총보수 데이터 미제공 [출처: https://example.com/fees]
+
+### 4. 리스크(괴리·유동성·집중도)
+- 괴리: 프리미엄/디스카운트 변동 가능 [출처: https://example.com/risk]
+
+### 5. 시장/모멘텀(가격·거래량·VIX)
+- VIX 18.5 (보통) [출처: yf.history(^VIX).Close, 2026-05-11]
+
+### 6. 투자 전략(투자자별)
+| 구분 | 실행 가이드 |
+|---|---|
+| 신규 진입자 | 분할 |
+| 기존 보유자 | 유지 |
+| 단기/스윙 | 변동성 관리 |
+| 중기/장기 | 분산 |
 """
 
 
@@ -170,6 +208,16 @@ class PostcheckTests(unittest.TestCase):
             actual_per=35.32,
             valuation_formula="목표가 = (기준 PER 35.32) × (TTM EPS 5.95) = 210달러",
         )
+
+
+class EtfPostcheckTests(unittest.TestCase):
+    def test_validate_etf_report_contract_accepts_valid(self) -> None:
+        validate_etf_report_contract(VALID_ETF_REPORT)
+
+    def test_validate_etf_report_contract_rejects_missing_holdings(self) -> None:
+        broken = VALID_ETF_REPORT.replace("| 순위 | 종목 | 티커 | 비중 | 비고 |", "상위 보유종목 표 없음", 1)
+        with self.assertRaisesRegex(ValueError, "holdings"):
+            validate_etf_report_contract(broken)
 
 
 if __name__ == "__main__":

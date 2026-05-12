@@ -19,6 +19,16 @@ def split_context(context: dict[str, Any]) -> dict[str, dict[str, Any]]:
     consensus_summary = dict(context.get("consensus_summary", {}))
 
     return {
+        "etf": {
+            "metadata": metadata,
+            "company_profile": company_profile,
+            "price_summary": price_summary,
+            "price_technicals": price_technicals,
+            "volume_summary": volume_summary,
+            "market_context": market_context,
+            "holder_summary": holder_summary,
+            "news_summary": news_summary,
+        },
         "valuation": {
             "metadata": metadata,
             "company_profile": company_profile,
