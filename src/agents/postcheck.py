@@ -36,6 +36,21 @@ INTERNAL_SOURCE_PATTERNS = [
 SOURCE_CITATION = r"\[출처:[^\]]+\]"
 
 
+_QUARTER_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_QUARTER_LABEL = re.compile(r"^\d{4}\s*[Qq]\s*[1-4]$")  # e.g. 2026Q1, 2026 Q1
+
+
+def _is_acceptable_quarter_cell(value: str) -> bool:
+    v = (value or "").strip()
+    if not v:
+        return False
+    if v.upper() in {"N/A", "NA"}:
+        return True
+    if "데이터" in v and "미제공" in v:
+        return True
+    return bool(_QUARTER_DATE.match(v) or _QUARTER_LABEL.match(v))
+
+
 def _section_header_line_re(num: int, title_re: str) -> re.Pattern[str]:
     # 제목 뒤 같은 줄에 "(요약)" 등 부제가 올 수 있음
     return re.compile(rf"^###\s*{num}\.\s*{title_re}(?:\s+[^\n]+)?\s*$", re.M)
@@ -120,7 +135,7 @@ def validate_report_contract(
         raise ValueError("Section 2 must start with a 4-row Markdown table.")
     for row in data_rows[:4]:
         cells = [cell.strip() for cell in row.strip().strip("|").split("|")]
-        if not cells or not re.match(r"^\d{4}-\d{2}-\d{2}$", cells[0]):
+        if not cells or not _is_acceptable_quarter_cell(cells[0]):
             raise ValueError("Section 2 data rows must use quarter dates in the first column.")
 
     _validate_extended_contract(report_md, actual_per=actual_per, valuation_formula=valuation_formula)

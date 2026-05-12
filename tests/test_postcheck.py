@@ -162,6 +162,15 @@ class PostcheckTests(unittest.TestCase):
         )
         validate_report_contract(swapped, actual_per=35.32, valuation_formula=formula)
 
+    def test_section2_allows_na_quarter_rows_for_non_corporate_assets(self) -> None:
+        na = VALID_REPORT.replace("| 2026-03-31 |", "| N/A |", 1).replace("| 2025-12-31 |", "| N/A |", 1)
+        na = na.replace("| 2025-09-30 |", "| N/A |", 1).replace("| 2025-06-30 |", "| N/A |", 1)
+        validate_report_contract(
+            na,
+            actual_per=35.32,
+            valuation_formula="목표가 = (기준 PER 35.32) × (TTM EPS 5.95) = 210달러",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
