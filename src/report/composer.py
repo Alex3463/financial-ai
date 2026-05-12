@@ -62,6 +62,7 @@ class ContextBuilder:
         company_relevant_articles = list((news_enrichment or {}).get("company_relevant_articles", []))
         market_reference_date = price.get("market_reference_date") or "데이터 미제공"
         asset_type = _infer_asset_type(snapshot)
+        community_summary = self._community_summary(snapshot.get("community") or {})
         return {
             "metadata": {
                 "ticker": snapshot["ticker"],
@@ -102,6 +103,7 @@ class ContextBuilder:
                 "deep_read_articles": deep_read_articles,
                 "deep_read_status": deep_read_status,
                 "company_relevant_articles": company_relevant_articles,
+                "community": community_summary,
             },
             "analyst_consensus": snapshot["analyst_recs"],
             "consensus_summary": self._consensus_summary(snapshot, current_price=price.get("current")),
@@ -352,6 +354,93 @@ class ContextBuilder:
         if target_upside_pct is not None:
             parts.append(f"평균 목표가 기준 업사이드 {target_upside_pct}%")
         return " / ".join(parts)
+
+    def _community_summary(self, community: dict[str, Any]) -> dict[str, Any]:
+        """
+        Lightweight sentiment summary over Yahoo Finance community conversations.
+        NOTE: 참고 지표이며, 표본/편향/조작/차단 가능성을 전제로 합니다.
+        """
+        if not isinstance(community, dict) or not community:
+            return {"status": "missing", "note": "community 데이터 미제공"}
+        status = str(community.get("status") or "")
+        convs = community.get("conversations")
+        if status != "ok" or not isinstance(convs, list) or not convs:
+            return {"status": status or "missing", "note": "community 대화 데이터가 비어 있거나 수집 실패"}
+
+        pos_kw = [
+            "buy",
+            "bull",
+            "up",
+            "rally",
+            "breakout",
+            "strong",
+            "good",
+            "long",
+            "moon",
+            "매수",
+            "상승",
+            "호재",
+            "강세",
+            "돌파",
+            "우상향",
+            "좋다",
+        ]
+        neg_kw = [
+            "sell",
+            "bear",
+            "down",
+            "dump",
+            "crash",
+            "weak",
+            "bad",
+            "short",
+            "매도",
+            "하락",
+            "악재",
+            "약세",
+            "폭락",
+            "거품",
+            "리스크",
+        ]
+
+        pos = 0
+        neg = 0
+        tokens: dict[str, int] = {}
+        texts: list[str] = []
+        for item in convs[:20]:
+            t = str((item or {}).get("text") or "")
+            if not t:
+                continue
+            tl = t.lower()
+            texts.append(t[:240])
+            if any(k in tl for k in pos_kw):
+                pos += 1
+            if any(k in tl for k in neg_kw):
+                neg += 1
+            for w in re.findall(r"[A-Za-z]{3,}|[가-힣]{2,}", t):
+                wl = w.lower()
+                if wl in {"the", "and", "for", "with", "this", "that", "you", "are", "was", "have"}:
+                    continue
+                if wl in {"매수", "매도", "상승", "하락"}:
+                    continue
+                tokens[wl] = tokens.get(wl, 0) + 1
+
+        n = len(texts)
+        if n == 0:
+            return {"status": "empty", "note": "community 대화 텍스트가 비어 있음"}
+        top_terms = [k for k, _ in sorted(tokens.items(), key=lambda kv: kv[1], reverse=True)[:8]]
+        score = (pos - neg) / max(n, 1)
+        return {
+            "status": "ok",
+            "n": n,
+            "pos_ratio": round(pos / max(n, 1), 3),
+            "neg_ratio": round(neg / max(n, 1), 3),
+            "sentiment_score": round(score, 3),
+            "top_terms": top_terms,
+            "sample": texts[:6],
+            "source_url": community.get("source_url", ""),
+            "note": "리테일 커뮤니티 여론(참고). 표본/편향/조작 가능성을 감안하세요.",
+        }
 
     def _first_sentence(self, text: str, limit: int = 220) -> str:
         cleaned = re.sub(r"\s+", " ", text).strip()

@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import json
 import time
 from datetime import datetime, timezone
 from typing import Any
+from urllib.error import URLError
+from urllib.request import Request, urlopen
 
 import pandas as pd
 import yfinance as yf
@@ -71,6 +74,108 @@ def _jsonable(value: Any) -> Any:
         except (TypeError, ValueError):
             pass
     return value
+
+
+def _fetch_url_text(url: str, *, timeout_s: float = 12.0) -> str:
+    ua = (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/122.0.0.0 Safari/537.36"
+    )
+    req = Request(url, headers={"User-Agent": ua, "Accept-Language": "en-US,en;q=0.9"})
+    with urlopen(req, timeout=timeout_s) as resp:  # noqa: S310
+        raw = resp.read()
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return raw.decode("utf-8", errors="ignore")
+
+
+def _extract_next_data_json(html: str) -> dict[str, Any] | None:
+    marker = 'id="__NEXT_DATA__"'
+    if marker not in html:
+        return None
+    try:
+        start = html.index(marker)
+        start = html.index(">", start) + 1
+        end = html.index("</script>", start)
+        payload = html[start:end].strip()
+        if not payload:
+            return None
+        return json.loads(payload)
+    except Exception:
+        return None
+
+
+def _walk_find_conversations(obj: Any) -> list[dict[str, Any]]:
+    found: list[dict[str, Any]] = []
+
+    def walk(x: Any) -> None:
+        if isinstance(x, dict):
+            if isinstance(x.get("conversations"), list):
+                for item in x.get("conversations") or []:
+                    if isinstance(item, dict):
+                        found.append(item)
+            for v in x.values():
+                walk(v)
+        elif isinstance(x, list):
+            for v in x:
+                walk(v)
+
+    walk(obj)
+    return found
+
+
+def _community_conversations_from_html(html: str, *, max_items: int = 20) -> list[dict[str, Any]]:
+    data = _extract_next_data_json(html)
+    if not data:
+        return []
+    convs = _walk_find_conversations(data)
+    out: list[dict[str, Any]] = []
+    for c in convs:
+        msg = (
+            c.get("message")
+            or (c.get("content") or {}).get("text")
+            or (c.get("content") or {}).get("body")
+            or ""
+        )
+        if not isinstance(msg, str):
+            msg = str(msg)
+        msg = " ".join(msg.split()).strip()
+        if not msg:
+            continue
+        msg = msg[:240]
+        author = c.get("userDisplayName") or c.get("authorName") or ""
+        created = c.get("createdAt") or c.get("created_at") or ""
+        up = c.get("reactionCount") or c.get("upVotes") or c.get("upvoteCount") or None
+        rec: dict[str, Any] = {"text": msg}
+        if author:
+            rec["author"] = str(author)[:64]
+        if created:
+            rec["created_at"] = str(created)[:32]
+        if isinstance(up, (int, float)):
+            rec["upvotes"] = int(up)
+        out.append(rec)
+        if len(out) >= max_items:
+            break
+    return out
+
+
+def _fetch_yahoo_community(ticker: str, *, max_items: int = 20) -> dict[str, Any]:
+    url = f"https://finance.yahoo.com/quote/{ticker}/community/"
+    try:
+        html = _fetch_url_text(url, timeout_s=12.0)
+        convs = _community_conversations_from_html(html, max_items=max_items)
+        return {
+            "source_url": url,
+            "status": "ok" if convs else "empty",
+            "n_items": len(convs),
+            "conversations": convs,
+        }
+    except URLError as e:
+        return {"source_url": url, "status": "error", "error": str(e)}
+    except Exception as e:
+        return {"source_url": url, "status": "error", "error": str(e)}
 
 
 def _holder_records(df: pd.DataFrame | None, *, max_rows: int = 5) -> list[dict[str, Any]]:
@@ -329,6 +434,13 @@ class YahooIngester:
             asset_classes = {}
             sector_weightings = {}
 
+        community: dict[str, Any] = {}
+        try:
+            # Best-effort: may be blocked/geo-restricted; never fail ingestion.
+            community = _fetch_yahoo_community(ticker, max_items=20)
+        except Exception:
+            community = {}
+
         return self._build_snapshot(
             ticker,
             hist_monthly,
@@ -351,6 +463,7 @@ class YahooIngester:
             institutional_holders=institutional_holders,
             mutualfund_holders=mutualfund_holders,
             major_holders=major_holders,
+            community=community,
         )
 
     def _safe_frame_attr(self, yf_obj: yf.Ticker, attr: str) -> pd.DataFrame | None:
@@ -387,6 +500,7 @@ class YahooIngester:
         fund_operations: dict[str, Any] | None = None,
         asset_classes: dict[str, Any] | None = None,
         sector_weightings: dict[str, Any] | None = None,
+        community: dict[str, Any] | None = None,
         *,
         benchmark_ticker: str | None = None,
         benchmark_daily_close: dict[str, float] | None = None,
@@ -463,6 +577,7 @@ class YahooIngester:
                 "sector_weightings": dict(sector_weightings or {}),
                 "source": "yfinance.funds_data",
             },
+            "community": dict(community or {}),
             "financials": {
                 "income_stmt": _df_to_nested_dict(income),
                 "balance_sheet": _df_to_nested_dict(balance),
