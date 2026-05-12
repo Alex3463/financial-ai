@@ -151,6 +151,34 @@ def _fund_top_holdings_records(df: pd.DataFrame | None, *, max_rows: int = 10) -
     return out
 
 
+def _fund_operations_dict(df: pd.DataFrame | None) -> dict[str, Any]:
+    """
+    Extract decision-useful ETF/fund operation metrics from yfinance FundsData.
+
+    Typical index labels:
+    - Annual Report Expense Ratio
+    - Annual Holdings Turnover
+    - Total Net Assets
+    """
+    if df is None or df.empty:
+        return {}
+    try:
+        col = df.columns[0]
+        series = df[col]
+        def pick(label: str) -> Any:
+            try:
+                return _jsonable(series.get(label))
+            except Exception:
+                return None
+        return {
+            "expense_ratio": pick("Annual Report Expense Ratio"),
+            "holdings_turnover": pick("Annual Holdings Turnover"),
+            "total_net_assets": pick("Total Net Assets"),
+        }
+    except Exception:
+        return {}
+
+
 def _first_str(*values: Any) -> str:
     for value in values:
         if isinstance(value, str):
@@ -280,15 +308,26 @@ class YahooIngester:
 
         fund_top_holdings: list[dict[str, Any]] = []
         fund_overview: dict[str, Any] = {}
+        fund_operations: dict[str, Any] = {}
+        asset_classes: dict[str, Any] = {}
+        sector_weightings: dict[str, Any] = {}
         try:
             fd = getattr(yf_obj, "funds_data", None)
             if fd is not None:
                 fund_top_holdings = _fund_top_holdings_records(getattr(fd, "top_holdings", None))
                 ov = getattr(fd, "fund_overview", None)
                 fund_overview = ov if isinstance(ov, dict) else {}
+                fund_operations = _fund_operations_dict(getattr(fd, "fund_operations", None))
+                ac = getattr(fd, "asset_classes", None)
+                asset_classes = ac if isinstance(ac, dict) else {}
+                sw = getattr(fd, "sector_weightings", None)
+                sector_weightings = sw if isinstance(sw, dict) else {}
         except Exception:
             fund_top_holdings = []
             fund_overview = {}
+            fund_operations = {}
+            asset_classes = {}
+            sector_weightings = {}
 
         return self._build_snapshot(
             ticker,
@@ -302,6 +341,9 @@ class YahooIngester:
             recs,
             fund_top_holdings=fund_top_holdings,
             fund_overview=fund_overview,
+            fund_operations=fund_operations,
+            asset_classes=asset_classes,
+            sector_weightings=sector_weightings,
             benchmark_ticker=benchmark_ticker,
             benchmark_daily_close=benchmark_daily_close,
             vix_ticker=vix_ticker,
@@ -342,6 +384,9 @@ class YahooIngester:
         recs: pd.DataFrame | None,
         fund_top_holdings: list[dict[str, Any]] | None = None,
         fund_overview: dict[str, Any] | None = None,
+        fund_operations: dict[str, Any] | None = None,
+        asset_classes: dict[str, Any] | None = None,
+        sector_weightings: dict[str, Any] | None = None,
         *,
         benchmark_ticker: str | None = None,
         benchmark_daily_close: dict[str, float] | None = None,
@@ -413,6 +458,9 @@ class YahooIngester:
             "fund": {
                 "top_holdings": list(fund_top_holdings or []),
                 "fund_overview": dict(fund_overview or {}),
+                "fund_operations": dict(fund_operations or {}),
+                "asset_classes": dict(asset_classes or {}),
+                "sector_weightings": dict(sector_weightings or {}),
                 "source": "yfinance.funds_data",
             },
             "financials": {

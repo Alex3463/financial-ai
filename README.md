@@ -235,6 +235,9 @@ financial-ai/
   - Playwright/yfinance MCP 기동 시 PATH에 `/opt/homebrew/bin`, `/usr/local/bin`, `~/.local/bin` 등을 선행 주입하고, `npx`는 절대 경로 폴백으로 해석해 GUI 터미널에서의 `npx` 미탐지를 완화했습니다.
   - 리포트 계약 검사(`postcheck`): 섹션 헤더·`### 2. 재무 현황` 본문 추출 규칙을 완화하고, 밸류 산식 문자열 비교 시 `×`/`*`·전각 `=`·공백 차이를 흡수해 배치 시 일부 티커만 실패하던 문제를 줄였습니다.
   - Composer 프롬프트에 재무 현황 헤더 스타일 권고 추가, `postcheck` 단위 테스트 보강.
+- **ETF 리포트(신규)**
+  - `llm.mode: agents`에서 `ETF/FUND/ETN` 등 자산을 감지해 **ETF 전용 헤더/계약(postcheck)** 으로 리포트를 생성합니다.
+  - yfinance `funds_data`에서 **Top Holdings, 보수(Expense Ratio), 회전율(Turnover), 총자산(AUM), 섹터/자산군 비중**을 수집해 ETF 리포트(특히 섹션 3)에 활용합니다.
 - **기능·데이터 확장** (동일 날짜 병합 기록)
   - 목표가·손절가·VIX 등 리포트·트래킹 컨텍스트 확장, 테스트 및 리포트 생성 경로 개선.
 

@@ -119,6 +119,7 @@ class EtfComposerInput(StrictModel):
     price_technicals: dict[str, Any] = Field(default_factory=dict)
     volume_summary: dict[str, Any] = Field(default_factory=dict)
     market_context: dict[str, Any] = Field(default_factory=dict)
+    fund_profile: dict[str, Any] = Field(default_factory=dict)
     holdings: EtfHoldingsOutput
     news_summary: dict[str, Any] = Field(default_factory=dict)
 

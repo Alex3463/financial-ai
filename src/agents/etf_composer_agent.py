@@ -56,8 +56,10 @@ def _build_payload(etf_input: EtfComposerInput) -> dict[str, Any]:
         "price and momentum": raw.get("price_technicals", {}),
         "volume trading": raw.get("volume_summary", {}),
         "VIX market volatility": (raw.get("market_context", {}) or {}).get("vix", {}),
+        "fund profile": raw.get("fund_profile", {}),
         "holdings summary": raw.get("holdings", {}),
         "holdings table (markdown)": holdings_table,
+        "ops hints": "If fund profile includes expense_ratio/holdings_turnover/total_net_assets or sector/asset class weights, summarize them in section 3 with plain language and decision guidance.",
         "company news and deep reads": raw.get("news_summary", {}),
     }
 
@@ -69,6 +71,7 @@ def _build_input(etf_input: EtfComposerInput) -> str:
         "report_md 는 완성된 Markdown 리포트 전문이어야 하며 code fence 를 포함하면 안 됩니다.\n\n"
         "Use this pre-rendered holdings table for section 2:\n"
         f"{payload['holdings table (markdown)']}\n\n"
+        "Use fund profile/operations fields for section 3 when available.\n\n"
         f"{dump_json(payload)}"
     )
 

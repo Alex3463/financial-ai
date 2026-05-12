@@ -131,6 +131,7 @@ async def _run_agent_report_async(
             price_technicals=dict(context.get("price_technicals", {})),
             volume_summary=dict(context.get("volume_summary", {})),
             market_context=dict(context.get("market_context", {})),
+            fund_profile=dict(context.get("fund_profile", {})),
             holdings=holdings,
             news_summary=dict(context.get("news_summary", {})),
         )
