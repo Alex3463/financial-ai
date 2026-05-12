@@ -13,6 +13,29 @@ DEFAULT_PLAYWRIGHT_COMMAND = "npx"
 DEFAULT_PLAYWRIGHT_ARGS = ["@playwright/mcp@latest"]
 NPM_CACHE_ENV_KEYS = ("npm_config_cache", "NPM_CONFIG_CACHE")
 
+# Cursor/GUI에서 띄운 Python은 ~/.zshrc를 안 읽어 PATH에 Homebrew가 없는 경우가 많습니다.
+_NPX_FALLBACK_PATHS = (
+    "/opt/homebrew/bin/npx",  # Apple Silicon Homebrew
+    "/usr/local/bin/npx",  # Intel Homebrew / legacy
+)
+
+
+def _path_prefixes_for_mcp() -> list[str]:
+    """존재하는 디렉터리만 — shutil.which / 자식 프로세스가 node 등을 찾도록 PATH 앞에 붙임."""
+    candidates = (
+        "/opt/homebrew/bin",
+        "/usr/local/bin",
+        str(Path.home() / ".local" / "bin"),
+    )
+    return [p for p in candidates if Path(p).is_dir()]
+
+
+def _merge_path_with_prefixes(path_value: str | None) -> str:
+    parts = _path_prefixes_for_mcp()
+    if path_value:
+        parts.append(path_value)
+    return ":".join(parts)
+
 
 def tools_enabled(cfg: dict[str, Any]) -> bool:
     return bool(cfg.get("agents", {}).get("tools_enabled", True))
@@ -31,15 +54,22 @@ def _merged_yfinance_config(cfg: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _resolve_command(command: str) -> str:
+def _resolve_command(command: str, *, path: str | None = None) -> str:
     if Path(command).is_absolute():
         if not Path(command).exists():
             raise RuntimeError(f"MCP command not found: {command}")
         return command
 
-    resolved = shutil.which(command)
+    which_path = path or os.environ.get("PATH")
+    resolved = shutil.which(command, path=which_path)
     if resolved:
         return resolved
+
+    if command == "npx":
+        for candidate in _NPX_FALLBACK_PATHS:
+            p = Path(candidate)
+            if p.exists():
+                return str(p)
 
     if command == "uvx":
         fallback = Path.home() / ".local" / "bin" / "uvx"
@@ -47,7 +77,7 @@ def _resolve_command(command: str) -> str:
             return str(fallback)
         raise RuntimeError(
             "mcp.yfinance.command is set to 'uvx', but 'uvx' was not found on PATH. "
-            "Set config.yaml mcp.yfinance.command to '/Users/hwani/.local/bin/uvx' "
+            "Set config.yaml mcp.yfinance.command to an absolute path "
             "or add '~/.local/bin' to PATH before running the pipeline."
         )
 
@@ -115,10 +145,13 @@ def make_yfinance_server(cfg: dict[str, Any], *, name: str) -> MCPServerStdio | 
         return None
 
     mcp_cfg = _merged_yfinance_config(cfg)
-    command = _resolve_command(str(mcp_cfg["command"]))
-
     extra_env = dict(mcp_cfg.get("env", {}))
-    env = {**os.environ, **extra_env} if extra_env else None
+    merged = {**os.environ, **extra_env}
+    lookup_path = _merge_path_with_prefixes(merged.get("PATH"))
+    command = _resolve_command(str(mcp_cfg["command"]), path=lookup_path)
+    if merged.get("PATH") != lookup_path:
+        merged["PATH"] = lookup_path
+    env = merged
 
     return MCPServerStdio(
         name=name,
@@ -138,10 +171,13 @@ def make_playwright_server(cfg: dict[str, Any], *, name: str) -> MCPServerStdio 
         return None
 
     mcp_cfg = _merged_playwright_config(cfg)
-    command = _resolve_command(str(mcp_cfg["command"]))
-
     extra_env = dict(mcp_cfg.get("env", {}))
-    env = {**os.environ, **extra_env} if extra_env else None
+    merged = {**os.environ, **extra_env}
+    lookup_path = _merge_path_with_prefixes(merged.get("PATH"))
+    command = _resolve_command(str(mcp_cfg["command"]), path=lookup_path)
+    if merged.get("PATH") != lookup_path:
+        merged["PATH"] = lookup_path
+    env = merged
 
     return MCPServerStdio(
         name=name,

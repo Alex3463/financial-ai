@@ -2,14 +2,25 @@ from __future__ import annotations
 
 import re
 
-REQUIRED_HEADERS = [
-    "### 1. 투자 요약",
-    "### 2. 재무 현황",
-    "### 3. 성장 동력",
-    "### 4. 리스크 요인",
-    "### 5. 밸류에이션",
-    "### 6. 투자 결론",
+# (섹션 번호, 제목 정규식) — Composer가 "###  2." 처럼 공백을 늘리거나 헤더 줄에 부제를 붙여도 매칭되게 함
+_SECTION_SPECS: list[tuple[int, str]] = [
+    (1, r"투자\s+요약"),
+    (2, r"재무\s+현황"),
+    (3, r"성장\s+동력"),
+    (4, r"리스크\s+요인"),
+    (5, r"밸류에이션"),
+    (6, r"투자\s+결론"),
 ]
+
+_HEADER_TO_SPEC: dict[str, tuple[int, str]] = {
+    "### 1. 투자 요약": (1, r"투자\s+요약"),
+    "### 2. 재무 현황": (2, r"재무\s+현황"),
+    "### 3. 성장 동력": (3, r"성장\s+동력"),
+    "### 4. 리스크 요인": (4, r"리스크\s+요인"),
+    "### 5. 밸류에이션": (5, r"밸류에이션"),
+    "### 6. 투자 결론": (6, r"투자\s+결론"),
+}
+
 INTERNAL_SOURCE_PATTERNS = [
     r"\bInput slice\b",
     r"입력\s*슬라이스",
@@ -25,6 +36,63 @@ INTERNAL_SOURCE_PATTERNS = [
 SOURCE_CITATION = r"\[출처:[^\]]+\]"
 
 
+def _section_header_line_re(num: int, title_re: str) -> re.Pattern[str]:
+    # 제목 뒤 같은 줄에 "(요약)" 등 부제가 올 수 있음
+    return re.compile(rf"^###\s*{num}\.\s*{title_re}(?:\s+[^\n]+)?\s*$", re.M)
+
+
+def _section_body_re(num: int, title_re: str) -> re.Pattern[str]:
+    return re.compile(
+        rf"^###\s*{num}\.\s*{title_re}[^\n]*\n(.*?)(?=^###\s*\d+\.|\Z)",
+        re.M | re.S,
+    )
+
+
+def _validate_required_headers(report_md: str) -> None:
+    positions: list[int] = []
+    for num, title_re in _SECTION_SPECS:
+        m = _section_header_line_re(num, title_re).search(report_md)
+        if not m:
+            raise ValueError(f"Final report is missing required header for section {num}.")
+        positions.append(m.start())
+    if positions != sorted(positions):
+        raise ValueError("Final report headers are not in the expected order.")
+
+
+def _extract_section(report_md: str, header: str) -> str:
+    spec = _HEADER_TO_SPEC.get(header)
+    if not spec:
+        return ""
+    num, title_re = spec
+    m = _section_body_re(num, title_re).search(report_md)
+    return m.group(1) if m else ""
+
+
+def _normalize_text(text: str) -> str:
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _normalize_formula_for_match(text: str) -> str:
+    """LLM이 ×/*, 전각 =, 공백만 바꾼 경우에도 부분 일치 검사가 되도록 정규화."""
+    t = text.replace("＝", "=").replace("﹦", "=")
+    for ch in ("×", "⋅", "·", "∗", "﹡"):
+        t = t.replace(ch, "*")
+    t = re.sub(r"\s+", " ", t).strip().lower()
+    return t
+
+
+def _valuation_formula_in_report(formula: str, report_md: str) -> bool:
+    fn = _normalize_formula_for_match(formula)
+    rn = _normalize_formula_for_match(report_md)
+    if not fn:
+        return False
+    if fn in rn:
+        return True
+    fn_compact = re.sub(r"\s+", "", fn)
+    rn_compact = re.sub(r"\s+", "", rn)
+    return fn_compact in rn_compact
+
+
 def validate_report_contract(
     report_md: str,
     *,
@@ -38,20 +106,9 @@ def validate_report_contract(
         if re.search(pattern, report_md, re.I):
             raise ValueError("Final report contains internal source leakage.")
 
-    positions: list[int] = []
-    for header in REQUIRED_HEADERS:
-        pos = report_md.find(header)
-        if pos < 0:
-            raise ValueError(f"Final report is missing required header: {header}")
-        positions.append(pos)
-    if positions != sorted(positions):
-        raise ValueError("Final report headers are not in the expected order.")
+    _validate_required_headers(report_md)
 
-    sec2 = re.search(
-        r"^### 2\. 재무 현황\s*\n(.*?)(?=^### \d\.|\Z)",
-        report_md,
-        re.M | re.S,
-    )
+    sec2 = _section_body_re(2, r"재무\s+현황").search(report_md)
     if not sec2:
         raise ValueError("Section 2 could not be extracted for postcheck.")
 
@@ -87,9 +144,7 @@ def _validate_extended_contract(
     if valuation_formula:
         if not re.search(r"\d", valuation_formula):
             raise ValueError("Valuation formula must include numeric inputs.")
-        formula_norm = _normalize_text(valuation_formula)
-        report_norm = _normalize_text(report_md)
-        if formula_norm not in report_norm:
+        if not _valuation_formula_in_report(valuation_formula, report_md):
             raise ValueError("Final report is missing the required valuation formula text.")
 
     if not _has_labeled_number(report_md, "현재가"):
@@ -109,12 +164,6 @@ def _validate_extended_contract(
         raise ValueError("Growth section is missing at least one citation.")
     if not re.search(SOURCE_CITATION, risk):
         raise ValueError("Risk section is missing at least one citation.")
-
-
-def _extract_section(report_md: str, header: str) -> str:
-    escaped = re.escape(header)
-    match = re.search(rf"^{escaped}\s*\n(.*?)(?=^### \d\.|\Z)", report_md, re.M | re.S)
-    return match.group(1) if match else ""
 
 
 def _extract_reported_per(report_md: str) -> float | None:
@@ -139,7 +188,3 @@ def _has_labeled_number(report_md: str, label: str) -> bool:
         re.search(label_then_number, report_md, re.I)
         or re.search(number_then_label, report_md, re.I)
     )
-
-
-def _normalize_text(text: str) -> str:
-    return re.sub(r"\s+", " ", text).strip()

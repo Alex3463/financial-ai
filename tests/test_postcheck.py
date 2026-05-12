@@ -146,6 +146,22 @@ class PostcheckTests(unittest.TestCase):
                 valuation_formula="목표가 = (기준 PER 35.32) × (TTM EPS 5.95) = 210달러",
             )
 
+    def test_section2_postcheck_when_header_has_inline_suffix(self) -> None:
+        relaxed = VALID_REPORT.replace("### 2. 재무 현황\n", "### 2. 재무 현황 (분기 추이)\n", 1)
+        validate_report_contract(
+            relaxed,
+            actual_per=35.32,
+            valuation_formula="목표가 = (기준 PER 35.32) × (TTM EPS 5.95) = 210달러",
+        )
+
+    def test_valuation_formula_matches_when_report_uses_ascii_multiply(self) -> None:
+        formula = "목표가 = (기준 PER 35.32) × (TTM EPS 5.95) = 210달러"
+        swapped = VALID_REPORT.replace(
+            "목표가 = (기준 PER 35.32) × (TTM EPS 5.95) = 210달러",
+            "목표가 = (기준 PER 35.32) * (TTM EPS 5.95) = 210달러",
+        )
+        validate_report_contract(swapped, actual_per=35.32, valuation_formula=formula)
+
 
 if __name__ == "__main__":
     unittest.main()
