@@ -4,6 +4,7 @@ from typing import Any
 
 # M0: rules.py 가 채우는 3항목(출처·리스크·예측) 양수 합 상한. 나머지 6항목은 Judge(M2).
 M0_AUTO_SCORE_CAP = 10 + 10 + 5
+M0_ETF_AUTO_SCORE_CAP = 10 + 10 + 10 + 10 + 5  # 출처/리스크/비용/구성/의사결정
 
 RUBRIC_MAX = {
     "data_accuracy": 20,
@@ -21,11 +22,22 @@ RUBRIC_MAX = {
 def aggregate(rule_scores: dict[str, Any], llm_judge_scores: dict[str, Any] | None = None) -> dict[str, Any]:
     rs = dict(rule_scores)
     flags = list(rs.pop("flags", []))
+    variant = str(rs.pop("_rubric_variant", "") or "").upper()
 
     breakdown: dict[str, Any] = {}
 
-    for k in ["source_transparency", "risk_coverage", "forecast_verifiability"]:
-        breakdown[k] = rs.get(k, 0)
+    if variant == "ETF":
+        for k in [
+            "source_transparency",
+            "risk_coverage",
+            "cost_structure",
+            "portfolio_structure",
+            "forecast_verifiability",
+        ]:
+            breakdown[k] = rs.get(k, 0)
+    else:
+        for k in ["source_transparency", "risk_coverage", "forecast_verifiability"]:
+            breakdown[k] = rs.get(k, 0)
 
     if llm_judge_scores:
         breakdown.update(llm_judge_scores)
@@ -58,13 +70,17 @@ def aggregate(rule_scores: dict[str, Any], llm_judge_scores: dict[str, Any] | No
             f"이론 만점 100 + 페널티. total_score={total}."
         )
     else:
-        rubric_mode = "M0_rules_only"
-        cap = float(M0_AUTO_SCORE_CAP)
+        rubric_mode = "M0_etf_rules" if variant == "ETF" else "M0_rules_only"
+        cap = float(M0_ETF_AUTO_SCORE_CAP if variant == "ETF" else M0_AUTO_SCORE_CAP)
         raw_for_scale = max(0.0, float(total))
         normalized_100 = max(0.0, min(100.0, (raw_for_scale / cap) * 100.0))
         grade = _interpret(normalized_100)
+        if variant == "ETF":
+            coverage_note = "ETF 전용(출처·리스크·비용·구성·의사결정) 규칙"
+        else:
+            coverage_note = "주식 전용(출처·리스크·목표가) 규칙"
         grade_note = (
-            f"M0 규칙만 적용: 양수 항목 합 상한 약 {int(cap)}점(3/9 항목). "
+            f"M0 규칙만 적용: {coverage_note}, 양수 항목 합 상한 약 {int(cap)}점. "
             f"원점수 total_score={total} → 100점 환산 약 {normalized_100:.1f}로 등급 산정. "
             f"config eval.use_llm_judge 로 M2 전체 루브릭을 쓸 수 있습니다."
         )

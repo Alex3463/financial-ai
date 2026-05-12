@@ -74,6 +74,11 @@ def extract_signal_from_report(
     signal: Literal["buy", "hold", "sell"] = (
         opinion_map.get(m.group(1), "hold") if m else "hold"
     )
+    if not m:
+        # ETF 리포트는 표 형태로 투자 의견을 쓰는 경우가 많아, 간단한 폴백을 둡니다.
+        m2 = re.search(r"\|\s*투자\s*의견\s*\|\s*\*\*(매수|중립|매도)\*\*", report_text)
+        if m2:
+            signal = opinion_map.get(m2.group(1), "hold")
 
     basis = eval_result.get("score_normalized_100")
     if basis is not None:
@@ -86,8 +91,13 @@ def extract_signal_from_report(
     raw_h = horizon_map.get(hm.group(1), "12m") if hm else "12m"
     horizon = raw_h
 
+    # ETF/주식 모두에서 최대한 작동하도록 키워드 폭을 넓힙니다.
     bullets = _extract_section_bullets(report_text, "성장 동력")
+    if not bullets:
+        bullets = _extract_section_bullets(report_text, "투자 전략")
     risks = _extract_section_bullets(report_text, "리스크 요인")
+    if not risks:
+        risks = _extract_section_bullets(report_text, "리스크")
 
     return TradingSignal(
         ticker=ticker,

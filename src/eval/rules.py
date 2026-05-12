@@ -15,6 +15,25 @@ RISK_KEYWORDS = ["경쟁", "규제", "금리", "환율", "멀티플", "실적", 
 TARGET_PRICE = r"목표가.{0,40}[\$₩￦]?\s*[\d,.]+"
 FORMULA_KEYWORDS = r"(PER|DCF|EPS|PBR|배수|할인율|성장률).{0,80}(목표가|산출|×|=|\*)"
 
+ETF_RISK_KEYWORDS = [
+    "괴리",
+    "NAV",
+    "프리미엄",
+    "디스카운트",
+    "스프레드",
+    "유동성",
+    "추적",
+    "추적오차",
+    "리밸런싱",
+    "회전율",
+    "롤오버",
+    "레버리지",
+    "인버스",
+    "파생",
+    "환헤지",
+    "집중",
+]
+
 
 def _try_per_from_text(chunk: str) -> float | None:
     """재무·밸류 문맥을 구분해 trailing/실적 PER 후보만 추출."""
@@ -32,6 +51,61 @@ def _try_per_from_text(chunk: str) -> float | None:
             except ValueError:
                 continue
     return None
+
+
+def _is_etf_like(context: dict[str, Any]) -> bool:
+    meta = context.get("metadata") if isinstance(context.get("metadata"), dict) else {}
+    at = str(meta.get("asset_type") or "").upper()
+    return at in {"ETF", "FUND", "MUTUALFUND", "ETN"}
+
+
+def _run_etf_checks(report_text: str, context: dict[str, Any]) -> dict[str, Any]:
+    scores: dict[str, Any] = {"_rubric_variant": "ETF"}
+    flags: list[str] = []
+
+    n_numbers, _ = count_numeric_spans(report_text)
+    n_cited = len(re.findall(SOURCE_CITATION, report_text))
+    cite_rate = n_cited / max(n_numbers, 1)
+    scores["source_transparency"] = min(10, round(cite_rate * 10))
+    if cite_rate < 0.4:
+        flags.append(f"출처 누락: 숫자 {n_numbers}개 중 {n_cited}개만 출처 표기 ({cite_rate:.0%})")
+
+    found_overconf = [p for p in OVERCONFIDENCE if re.search(p, report_text)]
+    if found_overconf:
+        scores["bias_penalty"] = -3
+        flags.append(f"과도한 확신 표현 {len(found_overconf)}건 감지 → -3점")
+
+    covered = [kw for kw in ETF_RISK_KEYWORDS if kw in report_text]
+    risk_score = round(len(covered) / len(ETF_RISK_KEYWORDS) * 10)
+    scores["risk_coverage"] = risk_score
+    missing = set(ETF_RISK_KEYWORDS) - set(covered)
+    if risk_score < 5:
+        flags.append(f"ETF 리스크 미흡: 미커버 키워드 → {list(missing)[:10]}")
+
+    fund = context.get("fund_profile") if isinstance(context.get("fund_profile"), dict) else {}
+    ops = fund.get("fund_operations") if isinstance(fund.get("fund_operations"), dict) else {}
+    has_cost_fields = any(k in ops and ops.get(k) not in (None, "", "데이터 미제공") for k in ["expense_ratio", "holdings_turnover", "total_net_assets"])
+    has_cost_text = bool(re.search(r"(보수|expense\s*ratio|회전율|turnover|총자산|AUM|Total\s+Net\s+Assets)", report_text, re.I))
+    if has_cost_fields or has_cost_text:
+        scores["cost_structure"] = 10
+    else:
+        scores["cost_structure"] = 3
+        flags.append("운용 구조·비용(보수/회전율/AUM) 근거 부족")
+
+    has_holdings = bool(re.search(r"###\s*2\.\s*상위\s*보유", report_text))
+    has_sectors = bool(re.search(r"(섹터\s*비중|sector)", report_text, re.I))
+    scores["portfolio_structure"] = 10 if (has_holdings and has_sectors) else (6 if has_holdings else 3)
+    if scores["portfolio_structure"] < 6:
+        flags.append("구성(보유종목/섹터) 설명이 부족해 구조적 이해가 어려움")
+
+    has_opinion = bool(re.search(r"투자\s*의견[^\n]*?(매수|중립|매도)", report_text))
+    has_outlook = bool(re.search(r"(전망|시나리오|향후|베이스|불리시|베어리시)", report_text))
+    scores["forecast_verifiability"] = 5 if (has_opinion and has_outlook and n_numbers >= 8) else (3 if has_outlook else 1)
+    if scores["forecast_verifiability"] <= 1:
+        flags.append("의사결정(매수/중립/매도) 또는 전망/시나리오가 약함")
+
+    scores["flags"] = flags
+    return scores
 
 
 def _extract_reported_per(text: str) -> float | None:
@@ -63,6 +137,9 @@ def _extract_reported_per(text: str) -> float | None:
 
 
 def run_all_checks(report_text: str, context: dict[str, Any]) -> dict[str, Any]:
+    if _is_etf_like(context):
+        return _run_etf_checks(report_text, context)
+
     scores: dict[str, Any] = {}
     flags: list[str] = []
 
