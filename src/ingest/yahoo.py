@@ -116,6 +116,41 @@ def _major_holder_records(df: pd.DataFrame | None, *, max_rows: int = 8) -> list
     return records
 
 
+def _fund_top_holdings_records(df: pd.DataFrame | None, *, max_rows: int = 10) -> list[dict[str, Any]]:
+    """
+    Extract Yahoo Finance 'Top Holdings' table for ETFs/funds from yfinance FundsData.
+
+    Expected shape (common): index=Symbol, columns include 'Name' and 'Holding Percent' (0-1).
+    """
+    if df is None or df.empty:
+        return []
+    out: list[dict[str, Any]] = []
+    try:
+        cols = {str(c).strip().lower().replace(" ", "_"): c for c in df.columns}
+        name_col = cols.get("name")
+        pct_col = cols.get("holding_percent")
+        for symbol, row in df.head(max_rows).iterrows():
+            sym = str(symbol).strip()
+            if not sym:
+                continue
+            rec: dict[str, Any] = {"symbol": sym}
+            if name_col is not None:
+                name_v = _jsonable(row.get(name_col))
+                if name_v is not None:
+                    rec["name"] = name_v
+            if pct_col is not None:
+                pct_v = row.get(pct_col)
+                try:
+                    if pct_v is not None and not pd.isna(pct_v):
+                        rec["weight_pct"] = round(float(pct_v) * 100.0, 4)
+                except (TypeError, ValueError):
+                    pass
+            out.append(rec)
+    except Exception:
+        return []
+    return out
+
+
 def _first_str(*values: Any) -> str:
     for value in values:
         if isinstance(value, str):
@@ -243,6 +278,18 @@ class YahooIngester:
         except Exception:
             recs = None
 
+        fund_top_holdings: list[dict[str, Any]] = []
+        fund_overview: dict[str, Any] = {}
+        try:
+            fd = getattr(yf_obj, "funds_data", None)
+            if fd is not None:
+                fund_top_holdings = _fund_top_holdings_records(getattr(fd, "top_holdings", None))
+                ov = getattr(fd, "fund_overview", None)
+                fund_overview = ov if isinstance(ov, dict) else {}
+        except Exception:
+            fund_top_holdings = []
+            fund_overview = {}
+
         return self._build_snapshot(
             ticker,
             hist_monthly,
@@ -253,6 +300,8 @@ class YahooIngester:
             cashflow,
             news_list,
             recs,
+            fund_top_holdings=fund_top_holdings,
+            fund_overview=fund_overview,
             benchmark_ticker=benchmark_ticker,
             benchmark_daily_close=benchmark_daily_close,
             vix_ticker=vix_ticker,
@@ -291,6 +340,8 @@ class YahooIngester:
         cashflow: pd.DataFrame | None,
         news: list[dict[str, str]],
         recs: pd.DataFrame | None,
+        fund_top_holdings: list[dict[str, Any]] | None = None,
+        fund_overview: dict[str, Any] | None = None,
         *,
         benchmark_ticker: str | None = None,
         benchmark_daily_close: dict[str, float] | None = None,
@@ -309,6 +360,7 @@ class YahooIngester:
 
         keys_info = [
             "longName",
+            "quoteType",
             "sector",
             "industry",
             "longBusinessSummary",
@@ -358,6 +410,11 @@ class YahooIngester:
                 "vix_daily_close": dict(vix_daily_close or {}),
             },
             "info": info_subset,
+            "fund": {
+                "top_holdings": list(fund_top_holdings or []),
+                "fund_overview": dict(fund_overview or {}),
+                "source": "yfinance.funds_data",
+            },
             "financials": {
                 "income_stmt": _df_to_nested_dict(income),
                 "balance_sheet": _df_to_nested_dict(balance),

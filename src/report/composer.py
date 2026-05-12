@@ -76,6 +76,7 @@ class ContextBuilder:
                 "data_as_of": snapshot["fetched_at"],
             },
             "company_profile": self._company_profile(info),
+            "fund_profile": dict(snapshot.get("fund") or {}),
             "price_summary": {
                 "current_price": price["current"],
                 "52w_high": price["52w_high"],

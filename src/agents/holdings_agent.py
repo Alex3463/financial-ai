@@ -12,7 +12,8 @@ _PROMPT = load_prompt_text("holdings.md")
 def _build_input(context_slice: dict[str, Any]) -> str:
     return (
         "다음 ETF/펀드 슬라이스만 사용해 EtfHoldingsOutput JSON을 생성하세요.\n"
-        "가능하면 yfinance MCP 도구로 상위 보유종목(티커/이름/비중%)을 조회해 보강하세요.\n"
+        "입력 슬라이스에 fund_profile.top_holdings 가 있으면 그걸 최우선으로 사용해 top_holdings를 채우세요.\n"
+        "fund_profile.top_holdings 가 비어 있으면 yfinance MCP 도구로 상위 보유종목(티커/이름/비중%)을 조회해 보강하세요.\n"
         "보유종목을 못 가져오면 data_availability='missing'으로 두고, 이유를 concentration_note에 짧게 적고, "
         "top_holdings는 비워도 됩니다.\n\n"
         f"{dump_json(context_slice)}"

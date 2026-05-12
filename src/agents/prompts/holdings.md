@@ -5,6 +5,7 @@
 
 핵심 요구:
 - `top_holdings`는 최대 10~15개까지 허용합니다. 가능하면 비중(`weight_pct`)까지 채웁니다.
+- 입력 슬라이스에 `fund_profile.top_holdings`가 있으면 그것을 1차 출처로 사용합니다.
 - 보유종목 데이터가 없으면 억지로 추정하지 말고 `data_availability`를 `missing` 또는 `partial`로 두세요.
 
 출처 규칙:
