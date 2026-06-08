@@ -12,23 +12,56 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from web.access_log import client_ip_from_headers, visitors
 from web.jobs import JobManager
-from web.pipeline_runner import list_history, load_existing_run, run_for_dashboard
+from web.pipeline_runner import (
+    compute_sentiment_for_run,
+    list_history,
+    load_existing_run,
+    run_for_dashboard,
+)
+from web.security import (
+    SECURITY_HEADERS,
+    analyze_rate_limiter,
+    auth_required_for_write,
+    auth_token_configured,
+    clamp_limit,
+    client_rate_key,
+    demo_open_mode,
+    is_public_mode,
+    sanitize_run_paths,
+    validate_date,
+    validate_job_id,
+    validate_ticker,
+    verify_request_token,
+    verify_visitors_access,
+)
 
 from report.composer import today_str
 from run_pipeline import load_config
 from web.cache import is_complete_run
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
-jobs = JobManager()
+_max_jobs = int(os.environ.get("DASHBOARD_MAX_CONCURRENT_JOBS", "2"))
+jobs = JobManager(max_running=_max_jobs)
+_analyze_limiter = analyze_rate_limiter()
 
 app = FastAPI(
     title="Financial AI Demo",
     description="티커 입력 → 파이프라인 실행 → 탭별 결과 대시보드",
     version="0.1.0",
+    docs_url="/api/docs" if os.environ.get("DASHBOARD_OPENAPI", "").lower() == "true" else None,
+    redoc_url=None,
 )
 
 _SKIP_LOG_PREFIXES = ("/static/", "/favicon.ico")
 _SKIP_LOG_EXACT = {"/api/visitors", "/api/health"}
+
+
+class _SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        for key, val in SECURITY_HEADERS.items():
+            response.headers.setdefault(key, val)
+        return response
 
 
 class _AccessLogMiddleware(BaseHTTPMiddleware):
@@ -37,25 +70,26 @@ class _AccessLogMiddleware(BaseHTTPMiddleware):
         if path not in _SKIP_LOG_EXACT and not any(
             path.startswith(p) for p in _SKIP_LOG_PREFIXES
         ):
-                ip = client_ip_from_headers(
-                    client_host=request.client.host if request.client else None,
-                    headers={k.lower(): v for k, v in request.headers.items()},
-                )
-                visitors.record(
-                    ip=ip,
-                    path=path,
-                    method=request.method,
-                    user_agent=request.headers.get("user-agent", ""),
-                )
+            ip = client_ip_from_headers(
+                client_host=request.client.host if request.client else None,
+                headers={k.lower(): v for k, v in request.headers.items()},
+            )
+            visitors.record(
+                ip=ip,
+                path=path,
+                method=request.method,
+                user_agent=request.headers.get("user-agent", ""),
+            )
         return await call_next(request)
 
 
+app.add_middleware(_SecurityHeadersMiddleware)
 app.add_middleware(_AccessLogMiddleware)
 
 
 class AnalyzeRequest(BaseModel):
     ticker: str = Field(..., min_length=1, max_length=20)
-    date: str | None = None
+    date: str | None = Field(default=None, max_length=10)
     skip_llm: bool = False
     judge: bool = False
     no_judge: bool = False
@@ -75,35 +109,64 @@ def info() -> dict[str, Any]:
         "version": "0.1.0",
         "mode": os.environ.get("DASHBOARD_MODE", "local"),
         "public_url": public_url or None,
+        "github_url": os.environ.get(
+            "DASHBOARD_GITHUB_URL",
+            "https://github.com/Alex3463/financial-ai",
+        ),
         "disclaimer": "투자 권유가 아닙니다. 데모·참고용입니다.",
+        "auth_required_for_analyze": auth_required_for_write(),
+        "demo_open": demo_open_mode(),
+        "has_api_token": auth_token_configured(),
     }
 
 
 @app.get("/api/history")
 def history(limit: int = 30) -> dict[str, Any]:
-    return {"items": list_history(limit=limit)}
+    return {"items": list_history(limit=clamp_limit(limit))}
 
 
 @app.get("/api/visitors")
-def get_visitors(active_window_sec: int = 300) -> dict[str, Any]:
-    """최근 5분 이내 요청한 IP = 접속 중(근사). 터널 경유 시 IP는 Cloudflare/프록시 IP일 수 있음."""
+def get_visitors(request: Request, active_window_sec: int = 300) -> dict[str, Any]:
     window = max(60, min(active_window_sec, 3600))
-    return visitors.snapshot(active_window_sec=window)
+    snap = visitors.snapshot(active_window_sec=window)
+    if verify_visitors_access(request):
+        return snap
+    return {
+        "active_count": snap["active_count"],
+        "active_window_sec": window,
+        "active": [],
+        "recent": [],
+        "detail_requires_auth": True,
+    }
 
 
 @app.get("/api/runs/{ticker}/{date}")
 def get_run(ticker: str, date: str) -> dict[str, Any]:
-    data = load_existing_run(ticker, date)
+    sym = validate_ticker(ticker)
+    date_str = validate_date(date)
+    data = load_existing_run(sym, date_str)
     if not data:
         raise HTTPException(status_code=404, detail="해당 티커/날짜 산출물이 없습니다.")
-    return data
+    return sanitize_run_paths(data)
+
+
+@app.post("/api/sentiment/{ticker}/{date}")
+def run_sentiment(ticker: str, date: str, request: Request) -> dict[str, Any]:
+    """캐시된 뉴스에 FinBERT 감성분석을 실행(또는 기존 결과 반환)합니다."""
+    verify_request_token(request)
+    sym = validate_ticker(ticker)
+    date_str = validate_date(date)
+    result = compute_sentiment_for_run(sym, date_str)
+    if result.get("error") == "news_enrichment.json 없음":
+        raise HTTPException(status_code=404, detail="뉴스 데이터가 없습니다.")
+    return {"ticker": sym, "date": date_str, "sentiment_analysis": result}
 
 
 @app.get("/api/cache/{ticker}")
 def cache_status(ticker: str, date: str | None = None) -> dict[str, Any]:
     cfg = load_config()
-    sym = ticker.strip().upper()
-    date_str = date or today_str()
+    sym = validate_ticker(ticker)
+    date_str = validate_date(date) if date else today_str()
     return {
         "ticker": sym,
         "date": date_str,
@@ -112,17 +175,24 @@ def cache_status(ticker: str, date: str | None = None) -> dict[str, Any]:
 
 
 @app.post("/api/analyze")
-def start_analyze(req: AnalyzeRequest) -> dict[str, str]:
-    ticker = req.ticker.strip().upper()
-    if not ticker:
-        raise HTTPException(status_code=400, detail="티커를 입력하세요.")
+def start_analyze(req: AnalyzeRequest, request: Request) -> dict[str, str]:
+    verify_request_token(request)
+    _analyze_limiter.check(client_rate_key(request))
 
-    date_str = req.date or today_str()
-    job = jobs.create(ticker, date_str)
+    sym = validate_ticker(req.ticker)
+    date_str = validate_date(req.date) if req.date else today_str()
+
+    if is_public_mode() and not req.skip_llm and demo_open_mode():
+        raise HTTPException(
+            status_code=403,
+            detail="공개 데모 모드에서는 LLM 생략(스텁)만 허용됩니다. 전체 분석은 로컬 또는 토큰 인증 후 사용하세요.",
+        )
+
+    job = jobs.create(sym, date_str)
 
     def runner(progress):
         return run_for_dashboard(
-            ticker,
+            sym,
             date=date_str,
             skip_llm=req.skip_llm,
             judge=req.judge,
@@ -131,16 +201,23 @@ def start_analyze(req: AnalyzeRequest) -> dict[str, str]:
             progress=progress,
         )
 
-    jobs.run_in_background(job, runner)
+    try:
+        jobs.run_in_background(job, runner)
+    except RuntimeError as e:
+        raise HTTPException(status_code=429, detail=str(e)) from e
     return {"job_id": job.id}
 
 
 @app.get("/api/jobs/{job_id}")
 def get_job(job_id: str) -> dict[str, Any]:
-    job = jobs.get(job_id)
+    jid = validate_job_id(job_id)
+    job = jobs.get(jid)
     if not job:
         raise HTTPException(status_code=404, detail="작업을 찾을 수 없습니다.")
-    return jobs.to_dict(job)
+    payload = jobs.to_dict(job)
+    if payload.get("result"):
+        payload["result"] = sanitize_run_paths(payload["result"])
+    return payload
 
 
 @app.get("/")

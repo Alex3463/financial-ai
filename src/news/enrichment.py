@@ -12,6 +12,7 @@ from markdownify import markdownify as html_to_md
 
 from agents.mcp_servers import make_playwright_server
 from fio.storage import write_json
+from news.sentiment import enrich_with_finbert_sentiment
 from report.llm import LLMProvider
 
 DEFAULT_MAX_DEEP_READS = 2
@@ -680,5 +681,6 @@ def enrich_news(
             llm_provider=llm_provider,
         )
     )
+    enrich_with_finbert_sentiment(enrichment, cfg=cfg)
     write_json(artifacts_dir / "news_enrichment.json", enrichment)
     return enrichment

@@ -38,6 +38,11 @@ mcp:
     wait_after_navigation_sec: 1.0
     output_dir: ".playwright-mcp"
 
+news:
+  sentiment:
+    enabled: true
+    model: "ProsusAI/finbert"
+
 ingest:
   price_period: "1y"
   news_count: 10

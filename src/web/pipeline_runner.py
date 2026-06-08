@@ -23,6 +23,9 @@ load_dotenv(ROOT / "api_guide" / ".env")
 from report.composer import today_str  # noqa: E402
 from run_pipeline import load_config, paths_for_date, run_single_pipeline  # noqa: E402
 from web.cache import is_complete_run  # noqa: E402
+from fio.storage import write_json  # noqa: E402
+from news.sentiment import enrich_with_finbert_sentiment  # noqa: E402
+from web.security import validate_date, validate_ticker  # noqa: E402
 
 
 def make_pipeline_args(
@@ -55,8 +58,8 @@ def run_for_dashboard(
     progress: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
     cfg = load_config()
-    date_str = date or today_str()
-    sym = ticker.upper()
+    sym = validate_ticker(ticker)
+    date_str = validate_date(date) if date else today_str()
 
     if not force_refresh and is_complete_run(cfg, sym, date_str):
         if progress:
@@ -84,7 +87,9 @@ def run_for_dashboard(
 
 def load_existing_run(ticker: str, date: str) -> dict[str, Any] | None:
     cfg = load_config()
-    paths = paths_for_date(cfg, ticker.upper(), date)
+    sym = validate_ticker(ticker)
+    date_str = validate_date(date)
+    paths = paths_for_date(cfg, sym, date_str)
     art = paths["artifacts_dir"]
     report_md_path = paths["report_md"]
     if not art.is_dir():
@@ -107,7 +112,7 @@ def load_existing_run(ticker: str, date: str) -> dict[str, Any] | None:
         return None
 
     overview = {
-        "company_name": (context or {}).get("metadata", {}).get("company_name", ticker),
+        "company_name": (context or {}).get("metadata", {}).get("company_name", sym),
         "sector": (context or {}).get("metadata", {}).get("sector"),
         "current_price": (snapshot or {}).get("price", {}).get("current")
         or (context or {}).get("price_summary", {}).get("current_price"),
@@ -119,8 +124,8 @@ def load_existing_run(ticker: str, date: str) -> dict[str, Any] | None:
     }
 
     return {
-        "ticker": ticker.upper(),
-        "date": date,
+        "ticker": sym,
+        "date": date_str,
         "paths": {
             "artifacts_dir": str(art),
             "report_md": str(report_md_path),
@@ -142,6 +147,28 @@ def load_existing_run(ticker: str, date: str) -> dict[str, Any] | None:
         "cached": True,
         "cache_hit": True,
     }
+
+
+def compute_sentiment_for_run(ticker: str, date: str) -> dict[str, Any]:
+    """캐시된 news_enrichment에 FinBERT 감성을 계산·저장합니다."""
+    cfg = load_config()
+    sym = validate_ticker(ticker)
+    date_str = validate_date(date)
+    paths = paths_for_date(cfg, sym, date_str, ensure_dirs=False)
+    art = paths["artifacts_dir"]
+    news_path = art / "news_enrichment.json"
+    if not news_path.is_file():
+        return {"error": "news_enrichment.json 없음", "articles": [], "aggregate": {}}
+
+    enrichment = json.loads(news_path.read_text(encoding="utf-8"))
+    if enrichment.get("sentiment_analysis") and not enrichment["sentiment_analysis"].get("error"):
+        sa = enrichment["sentiment_analysis"]
+        if sa.get("articles") is not None and not sa.get("skipped"):
+            return sa
+
+    enrich_with_finbert_sentiment(enrichment, cfg=cfg)
+    write_json(news_path, enrichment)
+    return enrichment.get("sentiment_analysis") or {}
 
 
 def list_history(limit: int = 30) -> list[dict[str, str]]:

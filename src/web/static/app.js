@@ -8,6 +8,24 @@ let _chartPrice = null;
 let _chartTicker = null;
 let _chartData = null;
 
+function getDashboardToken() {
+  const params = new URLSearchParams(location.search);
+  const fromQuery = params.get("token");
+  if (fromQuery) {
+    sessionStorage.setItem("dashboard_token", fromQuery);
+    return fromQuery;
+  }
+  return sessionStorage.getItem("dashboard_token") || "";
+}
+
+function apiHeaders(json = false) {
+  const headers = {};
+  if (json) headers["Content-Type"] = "application/json";
+  const token = getDashboardToken();
+  if (token) headers["X-Dashboard-Token"] = token;
+  return headers;
+}
+
 const TABS = [
   { id: "summary", label: "요약" },
   { id: "report", label: "리포트" },
@@ -98,6 +116,15 @@ function renderSummary(data) {
 
   const thesis = hero.thesis.length ? hero.thesis : hero.bullets;
   const risks = hero.risks.length ? hero.risks : [];
+  const newsAgg = (data.news_enrichment || {}).sentiment_analysis?.aggregate;
+  const sentimentSummary =
+    newsAgg?.article_count
+      ? `<div class="highlight-box sentiment-summary ${sentimentCssClass(newsAgg.sentiment_label)}">
+          <span class="highlight-label">뉴스 감성 · FinBERT</span>
+          <p><strong>${esc(newsAgg.sentiment_label_ko)}</strong> · 평균 ${Number(newsAgg.avg_score).toFixed(3)}
+          <span class="muted-inline">(${newsAgg.article_count}건, 긍정−부정)</span></p>
+        </div>`
+      : "";
 
   el.innerHTML = `
     <div class="hero">
@@ -118,6 +145,7 @@ function renderSummary(data) {
       </div>
     </div>
 
+    ${sentimentSummary}
     ${hero.catalyst ? `<div class="highlight-box"><span class="highlight-label">핵심 쟁점</span><p>${esc(hero.catalyst)}</p></div>` : ""}
     ${hero.event ? `<div class="highlight-box warn"><span class="highlight-label">지금 봐야 할 이벤트</span><p>${esc(hero.event)}</p></div>` : ""}
 
@@ -137,8 +165,90 @@ function renderReport(data) {
     : `<p class="muted-center">리포트 본문이 없습니다.</p>`;
 }
 
+function sentimentCssClass(label) {
+  const map = { positive: "sent-pos", negative: "sent-neg", neutral: "sent-neu" };
+  return map[(label || "").toLowerCase()] || "sent-neu";
+}
+
+function renderSentimentBar(s) {
+  if (!s) return "";
+  const p = Math.round((s.positive || 0) * 100);
+  const n = Math.round((s.negative || 0) * 100);
+  const u = Math.max(0, 100 - p - n);
+  return `<div class="sentiment-bar" aria-label="긍정 ${p}% 중립 ${u}% 부정 ${n}%">
+    <span class="sent-seg pos" style="width:${p}%"></span>
+    <span class="sent-seg neu" style="width:${u}%"></span>
+    <span class="sent-seg neg" style="width:${n}%"></span>
+  </div>
+  <div class="sentiment-legend">
+    <span class="leg pos">긍정 ${p}%</span>
+    <span class="leg neu">중립 ${u}%</span>
+    <span class="leg neg">부정 ${n}%</span>
+  </div>`;
+}
+
+function renderSentimentBadge(s) {
+  if (!s) return "";
+  const cls = sentimentCssClass(s.sentiment_label);
+  const score = s.sentiment_score != null ? Number(s.sentiment_score).toFixed(2) : "—";
+  const label = s.sentiment_label_ko || s.sentiment_label || "—";
+  return `<span class="sentiment-badge ${cls}" title="sentiment_score = 긍정 − 부정">${esc(label)} <small>${score}</small></span>`;
+}
+
+function renderSentimentHero(sa) {
+  if (!sa || sa.skipped || sa.error) return "";
+  const agg = sa.aggregate || {};
+  if (!agg.article_count) return "";
+  const cls = sentimentCssClass(agg.sentiment_label);
+  const avg = agg.avg_score != null ? Number(agg.avg_score).toFixed(3) : "—";
+  return `<section class="sentiment-hero ${cls}">
+    <div class="sentiment-hero-top">
+      <span class="sentiment-model">FinBERT</span>
+      <span class="sentiment-hero-label">종합 뉴스 감성</span>
+    </div>
+    <div class="sentiment-hero-value">${esc(agg.sentiment_label_ko || agg.sentiment_label)}</div>
+    <div class="sentiment-hero-score">평균 ${avg} <span class="muted-inline">· ${agg.article_count}건 · +1 긍정 / −1 부정</span></div>
+  </section>`;
+}
+
+function lookupSentiment(article, sa) {
+  if (article.sentiment) return article.sentiment;
+  const url = (article.url || article.link || "").replace(/\/$/, "");
+  const title = (article.title || article.headline || "").trim().toLowerCase();
+  const rows = sa?.articles || [];
+  return rows.find((r) => {
+    const ru = (r.url || "").replace(/\/$/, "");
+    if (url && ru && url === ru) return true;
+    return title && (r.title || "").trim().toLowerCase() === title;
+  });
+}
+
+async function ensureSentiment(data) {
+  const n = data.news_enrichment || {};
+  const sa = n.sentiment_analysis;
+  if (sa?.articles?.length || sa?.skipped) return data;
+  if (sa?.error) return data;
+  if (!data.ticker || !data.date) return data;
+  const deep = n.deep_read_articles || [];
+  const fallback = n.company_relevant_articles || [];
+  if (!deep.length && !fallback.length) return data;
+  try {
+    const res = await fetch(
+      `/api/sentiment/${encodeURIComponent(data.ticker)}/${encodeURIComponent(data.date)}`,
+      { method: "POST", headers: apiHeaders() }
+    );
+    if (res.ok) {
+      const body = await res.json();
+      data.news_enrichment = { ...n, sentiment_analysis: body.sentiment_analysis };
+      currentData = data;
+    }
+  } catch (_) {}
+  return data;
+}
+
 function renderNews(data) {
   const n = data.news_enrichment || {};
+  const sa = n.sentiment_analysis || {};
   const deep = n.deep_read_articles || [];
   const articles = deep.length ? deep : n.company_relevant_articles || [];
   const el = $("#panel-news");
@@ -148,22 +258,45 @@ function renderNews(data) {
     return;
   }
 
-  el.innerHTML = `<div class="news-grid">${articles
-    .slice(0, 6)
-    .map((a) => {
-      const title = a.title || a.headline || "(제목 없음)";
-      const bullets = a.summary_bullets;
-      const sum = Array.isArray(bullets) && bullets.length
-        ? bullets.map((b) => esc(b)).join(" ")
-        : esc((a.summary || a.digest || "").slice(0, 200));
-      const url = a.url || a.link || "";
-      return `<article class="news-card">
+  if (sa.error) {
+    el.innerHTML = `${renderSentimentHero(sa)}
+      <p class="sentiment-error">감성분석 오류: ${esc(sa.error)}</p>`;
+    return;
+  }
+
+  const hero = renderSentimentHero(sa);
+  const cards = articles.slice(0, 8).map((a) => {
+    const title = a.title || a.headline || "(제목 없음)";
+    const bullets = a.summary_bullets;
+    const sum = Array.isArray(bullets) && bullets.length
+      ? bullets.map((b) => esc(b)).join(" ")
+      : esc((a.summary || a.digest || "").slice(0, 200));
+    const url = a.url || a.link || "";
+    const sent = lookupSentiment(a, sa);
+    return `<article class="news-card ${sent ? sentimentCssClass(sent.sentiment_label) : ""}">
+      <div class="news-card-head">
         <h3>${esc(title)}</h3>
-        ${sum ? `<p>${sum}</p>` : ""}
-        ${url ? `<a href="${esc(url)}" target="_blank" rel="noopener">원문 보기 →</a>` : ""}
-      </article>`;
-    })
-    .join("")}</div>`;
+        ${sent ? renderSentimentBadge(sent) : ""}
+      </div>
+      ${sent ? renderSentimentBar(sent) : ""}
+      ${sum ? `<p>${sum}</p>` : ""}
+      ${url ? `<a href="${esc(url)}" target="_blank" rel="noopener">원문 보기 →</a>` : ""}
+    </article>`;
+  }).join("");
+
+  el.innerHTML = `${hero}<div class="news-grid">${cards}</div>`;
+}
+
+async function renderNewsAsync(data) {
+  const el = $("#panel-news");
+  const n = data.news_enrichment || {};
+  const hasArticles =
+    (n.deep_read_articles || []).length || (n.company_relevant_articles || []).length;
+  if (hasArticles && !n.sentiment_analysis?.articles?.length && !n.sentiment_analysis?.skipped) {
+    el.innerHTML = `<p class="muted-center">FinBERT 감성분석 중… (첫 실행은 모델 로딩으로 수십 초 걸릴 수 있습니다)</p>`;
+    data = await ensureSentiment(data);
+  }
+  renderNews(data);
 }
 
 function renderDetailsAccordion(title, contentHtml, open = false) {
@@ -278,7 +411,7 @@ function mountPriceChart(ticker, price) {
   }
 }
 
-function renderAll(data) {
+async function renderAll(data) {
   currentData = data;
   destroyPriceChart();
   if (data.ticker && data.date) {
@@ -286,10 +419,10 @@ function renderAll(data) {
   }
   $("#empty").style.display = "none";
   $("#results").style.display = "block";
-  renderSummary(data);
   renderReport(data);
-  renderNews(data);
-  renderDetails(data);
+  await renderNewsAsync(data);
+  renderSummary(currentData);
+  renderDetails(currentData);
   switchTab("summary");
 }
 
@@ -332,7 +465,7 @@ async function pollJob(jobId) {
   }
   setRunning(false);
   if (job.status === "done" && job.result) {
-    renderAll(job.result);
+    await renderAll(job.result);
     loadHistory();
   } else if (job.status === "error") {
     alert("실행 실패: " + (job.error || "unknown"));
@@ -361,12 +494,14 @@ $("#form").addEventListener("submit", async (e) => {
 
   const res = await fetch("/api/analyze", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: apiHeaders(true),
     body: JSON.stringify(body),
   });
   if (!res.ok) {
     setRunning(false);
-    return alert("요청 실패");
+    const err = await res.json().catch(() => ({}));
+    const msg = err.detail || (res.status === 401 ? "API 토큰이 필요합니다. URL에 ?token= 을 확인하세요." : "요청 실패");
+    return alert(msg);
   }
   const { job_id } = await res.json();
   pollJob(job_id);
@@ -377,12 +512,24 @@ async function loadInfo() {
     const res = await fetch("/api/info");
     const info = await res.json();
     if (info.disclaimer) $("#disclaimer").textContent = info.disclaimer;
+    const gh = $("#github-banner");
+    if (gh && info.github_url) {
+      gh.href = info.github_url;
+      const slug = info.github_url.replace(/\/$/, "").split("/").slice(-2).join("/");
+      if (slug) gh.querySelector("span").textContent = slug;
+    }
     if (info.public_url) {
       const box = $("#share-box");
       const link = $("#public-url");
-      link.href = info.public_url;
-      link.textContent = info.public_url;
+      const token = getDashboardToken();
+      const share = token ? `${info.public_url}?token=${encodeURIComponent(token)}` : info.public_url;
+      link.href = share;
+      link.textContent = share;
       box.hidden = false;
+    }
+    if (info.auth_required_for_analyze && !getDashboardToken()) {
+      $("#disclaimer").textContent +=
+        " · 분석 실행에는 URL의 ?token= 파라미터가 필요합니다.";
     }
   } catch (_) {}
 }
@@ -445,8 +592,12 @@ async function loadVisitors() {
   const box = $("#visitors");
   if (!box) return;
   try {
-    const res = await fetch("/api/visitors");
+    const res = await fetch("/api/visitors", { headers: apiHeaders() });
     const data = await res.json();
+    if (data.detail_requires_auth) {
+      box.innerHTML = `<p class="muted-small">접속 약 ${data.active_count}명 · IP 상세는 토큰 인증 후 표시</p>`;
+      return;
+    }
     const active = data.active || [];
     if (!active.length) {
       box.innerHTML = `<p class="muted-small">현재 접속자 없음 <span style="opacity:0.7">(최근 ${data.active_window_sec / 60}분 기준)</span></p>`;

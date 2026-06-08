@@ -18,9 +18,17 @@ class JobRecord:
 
 
 class JobManager:
-    def __init__(self) -> None:
+    def __init__(self, *, max_running: int = 2) -> None:
         self._jobs: dict[str, JobRecord] = {}
         self._lock = threading.Lock()
+        self._max_running = max(1, max_running)
+
+    def _running_count_unlocked(self) -> int:
+        return sum(1 for j in self._jobs.values() if j.status == "running")
+
+    def running_count(self) -> int:
+        with self._lock:
+            return self._running_count_unlocked()
 
     def create(self, ticker: str, date: str) -> JobRecord:
         job_id = uuid.uuid4().hex[:12]
@@ -38,6 +46,12 @@ class JobManager:
         job: JobRecord,
         runner: Callable[[Callable[[str], None]], dict[str, Any]],
     ) -> None:
+        with self._lock:
+            if self._running_count_unlocked() >= self._max_running:
+                raise RuntimeError(
+                    f"동시 실행 한도({self._max_running})에 도달했습니다. 잠시 후 다시 시도하세요."
+                )
+
         def _work() -> None:
             with self._lock:
                 job.status = "running"

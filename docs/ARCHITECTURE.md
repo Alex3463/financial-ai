@@ -74,7 +74,7 @@ flowchart LR
 
 | 단계 | 모듈 | 입력 | 출력 |
 |------|------|------|------|
-| **1/5** | `ingest/yahoo.py`, `news/enrichment.py` | 티커, `config.yaml` | `snapshot.json`, `news/*.md`, `news_enrichment.json` |
+| **1/5** | `ingest/yahoo.py`, `news/enrichment.py`, `news/sentiment.py` | 티커, `config.yaml` | `snapshot.json`, `news/*.md`, `news_enrichment.json` (+ FinBERT `sentiment_analysis`) |
 | **2/5** | `features/builder.py`, `report/composer.py` | 스냅샷·뉴스 digest | `context.json` (LLM용 통합 컨텍스트) |
 | **3/5** | `agents/orchestrator.py` (기본) 또는 `report/llm.py` (legacy) | `context.json` | `reports/<티커>/<날짜>.md`, agents 시 `artifacts/.../sections/` |
 | **4/5** | `eval/rules.py`, `eval/judge.py` (선택) | 리포트 + context | `eval.json` (루브릭 점수·등급) |

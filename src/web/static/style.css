@@ -33,6 +33,38 @@ header {
   background: linear-gradient(135deg, #1a2332 0%, #0f1419 100%);
 }
 
+.header-top {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 0.65rem;
+}
+
+.github-banner {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.28rem 0.55rem;
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--muted);
+  text-decoration: none;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: rgba(15, 20, 25, 0.5);
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+
+.github-banner:hover {
+  color: var(--text);
+  border-color: #4b5563;
+  background: var(--surface2);
+}
+
+.github-icon {
+  flex-shrink: 0;
+  opacity: 0.85;
+}
+
 header h1 {
   margin: 0 0 0.25rem;
   font-size: 1.35rem;
@@ -615,6 +647,124 @@ ul.bullets li {
 }
 
 .news-card a:hover { text-decoration: underline; }
+
+.news-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.45rem;
+}
+
+.news-card-head h3 {
+  margin: 0;
+  flex: 1;
+}
+
+.news-card.sent-pos { border-left: 3px solid #22c55e; }
+.news-card.sent-neg { border-left: 3px solid #ef4444; }
+.news-card.sent-neu { border-left: 3px solid #94a3b8; }
+
+/* ── FinBERT 감성 ── */
+.sentiment-hero {
+  border-radius: var(--radius);
+  padding: 1rem 1.1rem;
+  margin-bottom: 1rem;
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.sentiment-hero.sent-pos { border-color: #166534; background: rgba(34, 197, 94, 0.08); }
+.sentiment-hero.sent-neg { border-color: #991b1b; background: rgba(239, 68, 68, 0.08); }
+.sentiment-hero.sent-neu { border-color: #475569; background: rgba(148, 163, 184, 0.08); }
+
+.sentiment-hero-top {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.35rem;
+}
+
+.sentiment-model {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 0.15rem 0.45rem;
+  border-radius: 4px;
+  background: rgba(147, 197, 253, 0.15);
+  color: #93c5fd;
+}
+
+.sentiment-hero-label {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.sentiment-hero-value {
+  font-size: 1.35rem;
+  font-weight: 700;
+  margin-bottom: 0.2rem;
+}
+
+.sentiment-hero-score {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.sentiment-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.2rem 0.5rem;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.sentiment-badge small {
+  font-weight: 500;
+  opacity: 0.85;
+}
+
+.sentiment-badge.sent-pos { background: rgba(34, 197, 94, 0.2); color: #4ade80; }
+.sentiment-badge.sent-neg { background: rgba(239, 68, 68, 0.2); color: #f87171; }
+.sentiment-badge.sent-neu { background: rgba(148, 163, 184, 0.2); color: #cbd5e1; }
+
+.sentiment-bar {
+  display: flex;
+  height: 6px;
+  border-radius: 3px;
+  overflow: hidden;
+  margin: 0.4rem 0 0.25rem;
+  background: var(--border);
+}
+
+.sent-seg.pos { background: #22c55e; }
+.sent-seg.neu { background: #94a3b8; }
+.sent-seg.neg { background: #ef4444; }
+
+.sentiment-legend {
+  display: flex;
+  gap: 0.65rem;
+  font-size: 0.68rem;
+  color: var(--muted);
+  margin-bottom: 0.5rem;
+}
+
+.sentiment-legend .leg.pos { color: #4ade80; }
+.sentiment-legend .leg.neg { color: #f87171; }
+
+.sentiment-error {
+  color: #f87171;
+  font-size: 0.85rem;
+  margin-top: 0.5rem;
+}
+
+.highlight-box.sentiment-summary.sent-pos { border-color: #166534; }
+.highlight-box.sentiment-summary.sent-neg { border-color: #991b1b; }
+.highlight-box.sentiment-summary.sent-neu { border-color: #475569; }
 
 /* ── 상세 아코디언 ── */
 .accordion {

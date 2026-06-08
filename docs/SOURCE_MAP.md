@@ -79,6 +79,7 @@ financial-ai/
 | 파일 | 역할 |
 |------|------|
 | `enrichment.py` | 뉴스 후보 선정, Playwright MCP deep-read, digest·`news_enrichment.json` |
+| `sentiment.py` | FinBERT(`ProsusAI/finbert`) 뉴스 감성·`sentiment_analysis` 병합 |
 
 ---
 
@@ -157,7 +158,8 @@ financial-ai/
 | `cache.py` | `is_complete_run()` — 캐시 히트 판별 |
 | `tunnel.py` | cloudflared quick tunnel |
 | `access_log.py` | 방문자 IP·요청 로그 |
-| `static/index.html` | UI 셸 |
+| `security.py` | API 토큰·속도 제한·입력 검증·보안 헤더 |
+| `static/index.html` | UI 셸 (GitHub 배너) |
 | `static/app.js` | 탭·폼·Job 폴링·렌더링 |
 | `static/report_parser.js` | Markdown 파싱 |
 | `static/chart_view.js` | Lightweight Charts |

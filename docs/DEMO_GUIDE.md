@@ -80,11 +80,15 @@ uv run scripts/run_dashboard.py
 uv run scripts/run_dashboard.py --public
 ```
 
-콘솔에 출력되는 URL 예:
+콘솔에 **API 토큰**과 `?token=...` 이 포함된 공유 URL이 출력됩니다:
 
 ```
-https://xxxx-yyyy-zzzz.trycloudflare.com
+https://xxxx-yyyy-zzzz.trycloudflare.com?token=...
 ```
+
+- 팀원에게는 **토큰 포함 URL**을 공유해야 **리포트 생성** 버튼이 동작합니다.
+- 조회·캐시된 리포트 열람은 토큰 없이도 가능합니다.
+- 보안 상세: [SECURITY.md](SECURITY.md)
 
 동일 URL은 `logs/dashboard.public_url`에도 저장됩니다.
 
@@ -137,7 +141,9 @@ launchctl bootout "gui/$(id -u)" ~/Library/LaunchAgents/com.financialai.dashboar
 
 ### 4. 뉴스 탭
 
+- **FinBERT 종합 감성** 히어로 (긍정/부정/중립, 평균 점수)
 - Playwright deep-read로 읽은 기사 요약
+- 기사별 **감성 배지** + 긍정/중립/부정 **확률 바**
 - 원문 링크 — 「헤드라인만이 아니라 본문 기반」 강조
 
 ### 5. 상세 데이터 탭

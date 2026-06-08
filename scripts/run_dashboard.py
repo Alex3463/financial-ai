@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import secrets
 import subprocess
 import sys
 import threading
@@ -47,7 +48,22 @@ def main() -> None:
         action="store_true",
         help="같은 Wi‑Fi/LAN에서 접속 가능하도록 0.0.0.0에 바인드",
     )
+    parser.add_argument(
+        "--token",
+        default="",
+        help="API 인증 토큰 (미지정 시 --public 에서 자동 생성)",
+    )
+    parser.add_argument(
+        "--demo-open",
+        action="store_true",
+        help="공개 모드에서 토큰 없이 열기 (LLM 스텁만 허용, 속도 제한 강화)",
+    )
     args = parser.parse_args()
+
+    if args.token:
+        os.environ["DASHBOARD_API_TOKEN"] = args.token.strip()
+    if args.demo_open:
+        os.environ["DASHBOARD_DEMO_OPEN"] = "true"
 
     host = "0.0.0.0" if args.lan else args.host
     port = args.port
@@ -61,6 +77,11 @@ def main() -> None:
             sys.exit(1)
 
         os.environ.setdefault("DASHBOARD_MODE", "public")
+        if not args.demo_open and not os.environ.get("DASHBOARD_API_TOKEN"):
+            auto_token = secrets.token_urlsafe(18)
+            os.environ["DASHBOARD_API_TOKEN"] = auto_token
+            print(f"[보안] API 토큰 자동 생성 (분석 실행·방문자 상세용): {auto_token}", flush=True)
+            print("[보안] 공유 URL에 ?token=... 를 붙여 팀원에게 전달하세요.", flush=True)
 
         server = threading.Thread(
             target=_run_uvicorn,
@@ -87,12 +108,14 @@ def main() -> None:
 
         def on_url(url: str) -> None:
             os.environ["DASHBOARD_PUBLIC_URL"] = url
+            token = os.environ.get("DASHBOARD_API_TOKEN", "").strip()
+            share_url = f"{url}?token={token}" if token else url
             url_file = ROOT / "logs" / "dashboard.public_url"
             url_file.parent.mkdir(parents=True, exist_ok=True)
-            url_file.write_text(url + "\n", encoding="utf-8")
+            url_file.write_text(share_url + "\n", encoding="utf-8")
             print("\n" + "=" * 60, flush=True)
             print("공개 URL (누구나 접속 가능):", flush=True)
-            print(f"  {url}", flush=True)
+            print(f"  {share_url}", flush=True)
             print("=" * 60, flush=True)
             print(f"로컬: {local_url}", flush=True)
             print("종료: Ctrl+C\n", flush=True)
