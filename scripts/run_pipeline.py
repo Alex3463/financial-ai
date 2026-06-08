@@ -8,7 +8,10 @@ import os
 import re
 import sys
 import time
+from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -46,7 +49,9 @@ def load_config() -> dict:
     return cfg
 
 
-def paths_for_date(cfg: dict, ticker: str, date_str: str) -> dict[str, Path]:
+def paths_for_date(
+    cfg: dict, ticker: str, date_str: str, *, ensure_dirs: bool = True
+) -> dict[str, Path]:
     base_a = Path(cfg.get("paths", {}).get("artifacts", "artifacts"))
     base_r = Path(cfg.get("paths", {}).get("reports", "reports"))
     base_t = Path(cfg.get("paths", {}).get("tracking", "tracking"))
@@ -58,9 +63,10 @@ def paths_for_date(cfg: dict, ticker: str, date_str: str) -> dict[str, Path]:
         base_t = ROOT / base_t
     art_dir = base_a / ticker / date_str
     report_dir = base_r / ticker
-    report_dir.mkdir(parents=True, exist_ok=True)
-    art_dir.mkdir(parents=True, exist_ok=True)
-    base_t.mkdir(parents=True, exist_ok=True)
+    if ensure_dirs:
+        report_dir.mkdir(parents=True, exist_ok=True)
+        art_dir.mkdir(parents=True, exist_ok=True)
+        base_t.mkdir(parents=True, exist_ok=True)
     return {
         "artifacts_dir": art_dir,
         "report_md": report_dir / f"{date_str}.md",
@@ -189,14 +195,22 @@ def run_single_pipeline(
     args: argparse.Namespace,
     *,
     emit_model_log: bool = True,
-) -> None:
-    """단일 티커 end-to-end (배치에서도 재사용)."""
+    progress: Callable[[str], None] | None = None,
+    return_result: bool = False,
+) -> dict[str, Any] | None:
+    """단일 티커 end-to-end (배치·웹 대시보드에서도 재사용)."""
+
+    def step(msg: str) -> None:
+        _plog(msg)
+        if progress:
+            progress(msg)
+
     llm_cfg = cfg.get("llm", {})
     model_hint = os.environ.get("FINANCIAL_AI_MODEL") or llm_cfg.get("model", "?")
     use_judge = _effective_use_judge(cfg, args)
 
-    _plog(f"시작: ticker={ticker}, date={date_str}")
-    _plog(
+    step(f"시작: ticker={ticker}, date={date_str}")
+    step(
         "분기: "
         + ("--skip-llm (더미 리포트)" if args.skip_llm else f"LLM 리포트 (model={model_hint})")
         + (" | --model-log" if args.model_log and emit_model_log else "")
@@ -204,7 +218,7 @@ def run_single_pipeline(
     )
 
     if emit_model_log and args.model_log:
-        _plog("선택: 게이트웨이 모델 목록 조회 중…")
+        step("선택: 게이트웨이 모델 목록 조회 중…")
         _, err, log_text = write_gateway_models_log(ROOT, cfg)
         print(log_text)
         print(f"(저장됨: {ROOT / 'logs' / 'available_models_latest.txt'})")
@@ -212,13 +226,13 @@ def run_single_pipeline(
             print(f"[pipeline] [경고] 모델 목록 조회 실패: {err}")
 
     paths = paths_for_date(cfg, ticker, date_str)
-    _plog(f"경로: artifacts={paths['artifacts_dir']} | report={paths['report_md']}")
+    step(f"경로: artifacts={paths['artifacts_dir']} | report={paths['report_md']}")
 
-    _plog("1/5 데이터 수집 (yfinance)…")
+    step("1/5 데이터 수집 (yfinance)…")
     ingester = YahooIngester()
     snapshot = ingester.fetch(ticker, cfg)
     write_json(paths["artifacts_dir"] / "snapshot.json", snapshot)
-    _plog(f"  → snapshot.json 저장 (종가≈{snapshot['price']['current']})")
+    step(f"  → snapshot.json 저장 (종가≈{snapshot['price']['current']})")
     news_enrichment = enrich_news(
         cfg,
         ticker=ticker,
@@ -228,7 +242,7 @@ def run_single_pipeline(
         use_llm_summary=not args.skip_llm,
     )
     status = news_enrichment.get("status", {})
-    _plog(
+    step(
         "  → 뉴스 심층 읽기: "
         f"{status.get('deep_read_count', 0)}/{status.get('selected_count', 0)}건 성공"
         + (
@@ -237,8 +251,12 @@ def run_single_pipeline(
             else ""
         )
     )
+    for failure in (news_enrichment.get("failures") or [])[:3]:
+        title = str(failure.get("title") or "?")[:60]
+        err = str(failure.get("error") or "unknown")[:160]
+        step(f"  → deep-read 실패: {title} — {err}")
 
-    _plog("2/5 피처·컨텍스트…")
+    step("2/5 피처·컨텍스트…")
     fb = FeatureBuilder()
     features = fb.build(snapshot)
     cb = ContextBuilder()
@@ -249,7 +267,7 @@ def run_single_pipeline(
     context["_token_check"] = budget
     tok = budget.get("context_tokens", "?")
     ok_budget = budget.get("within_budget", False)
-    _plog(f"  → context.json 저장 | 추정 토큰≈{tok} (예산 내: {ok_budget})")
+    step(f"  → context.json 저장 | 추정 토큰≈{tok} (예산 내: {ok_budget})")
 
     prompts_rel = Path(cfg.get("paths", {}).get("prompts", "prompts"))
     prompts_dir = prompts_rel if prompts_rel.is_absolute() else ROOT / prompts_rel
@@ -257,35 +275,35 @@ def run_single_pipeline(
     llm_report: LLMProvider | None = None
     llm_mode = (cfg.get("llm", {}).get("mode") or "agents").lower()
     if args.skip_llm:
-        _plog("3/5 리포트: 분기 → --skip-llm, 내장 스텁 Markdown 사용")
+        step("3/5 리포트: 분기 → --skip-llm, 내장 스텁 Markdown 사용")
         report_md = _stub_report(ticker, context)
         paths["report_md"].write_text(report_md, encoding="utf-8")
     elif llm_mode == "agents":
-        _plog("3/5 리포트: Agents (OpenAI Agents SDK)…")
+        step("3/5 리포트: Agents (OpenAI Agents SDK)…")
         from agents.orchestrator import run_agent_report
 
         report_md = run_agent_report(cfg, context, artifacts_dir=paths["artifacts_dir"])
         paths["report_md"].write_text(report_md, encoding="utf-8")
     else:
-        _plog("3/5 리포트: LLM 단일 호출 (legacy)…")
+        step("3/5 리포트: LLM 단일 호출 (legacy)…")
         llm_report = LLMProvider(cfg)
         report_md = compose_markdown_report(llm_report, prompts_dir, context)
         paths["report_md"].write_text(report_md, encoding="utf-8")
-    _plog(f"  → {paths['report_md'].name} 저장 ({len(report_md)} chars)")
+    step(f"  → {paths['report_md'].name} 저장 ({len(report_md)} chars)")
 
-    _plog("4/5 규칙 평가 + (선택) LLM Judge…")
+    step("4/5 규칙 평가 + (선택) LLM Judge…")
     rule_scores = run_all_checks(report_md, context)
     judge_scores = None
     judge_flags: list[str] = []
     if use_judge:
-        _plog("  → LLM Judge 호출 (루브릭 6항목)…")
+        step("  → LLM Judge 호출 (루브릭 6항목)…")
         judge_llm = llm_report or LLMProvider(cfg)
         try:
             judge_scores, judge_flags = run_llm_judge(
                 report_md, context, judge_llm, prompts_dir, cfg
             )
         except Exception as e:
-            _plog(f"  [경고] Judge 실패 — 규칙 점수만 사용: {e}")
+            step(f"  [경고] Judge 실패 — 규칙 점수만 사용: {e}")
             judge_flags = [f"Judge 오류: {e}"]
 
     agg = aggregate(rule_scores, judge_scores)
@@ -297,12 +315,12 @@ def run_single_pipeline(
     }
     write_json(paths["artifacts_dir"] / "eval.json", eval_out)
     n_flags = len(agg.get("flags") or [])
-    _plog(
+    step(
         f"  → total={agg['total_score']} | {agg.get('rubric_mode', '')} | "
         f"{agg.get('auto_coverage', '')} | 플래그 {n_flags}건"
     )
 
-    _plog("5/5 신호·트래킹 CSV…")
+    step("5/5 신호·트래킹 CSV…")
     tsig = extract_signal_from_report(
         report_md,
         agg,
@@ -335,17 +353,76 @@ def run_single_pipeline(
     }
     fieldnames = list(row.keys())
     append_prediction_row(paths["tracking_csv"], row, fieldnames)
-    _plog(f"  → signal.json + {paths['tracking_csv'].name} 1행 추가")
+    step(f"  → signal.json + {paths['tracking_csv'].name} 1행 추가")
 
-    _plog("전 단계 완료.")
-    print(f"완료: {paths['report_md']}")
-    note = agg.get("grade_note", "")
-    if note:
-        print(f"등급 설명: {note}")
-    print(
-        f"eval 원점수: {agg['total_score']} | 환산≈{agg.get('score_normalized_100', agg['total_score'])}/100 | 등급: {agg['grade']}"
+    write_json(
+        paths["artifacts_dir"] / "run_manifest.json",
+        {
+            "ticker": ticker,
+            "date": date_str,
+            "status": "complete",
+            "completed_at": datetime.now(UTC).isoformat(),
+            "skip_llm": bool(args.skip_llm),
+            "use_judge": use_judge,
+            "report_path": str(paths["report_md"]),
+        },
     )
-    print(f"신호: {tsig.signal} (confidence={tsig.confidence})")
+
+    step("전 단계 완료.")
+    if not return_result:
+        print(f"완료: {paths['report_md']}")
+        note = agg.get("grade_note", "")
+        if note:
+            print(f"등급 설명: {note}")
+        print(
+            f"eval 원점수: {agg['total_score']} | 환산≈{agg.get('score_normalized_100', agg['total_score'])}/100 | 등급: {agg['grade']}"
+        )
+        print(f"신호: {tsig.signal} (confidence={tsig.confidence})")
+        return None
+
+    news_path = paths["artifacts_dir"] / "news_enrichment.json"
+    return {
+        "ticker": ticker,
+        "date": date_str,
+        "paths": {
+            "artifacts_dir": str(paths["artifacts_dir"]),
+            "report_md": str(paths["report_md"]),
+            "tracking_csv": str(paths["tracking_csv"]),
+        },
+        "overview": {
+            "company_name": context.get("metadata", {}).get("company_name", ticker),
+            "sector": context.get("metadata", {}).get("sector"),
+            "current_price": snapshot["price"]["current"],
+            "signal": tsig.signal,
+            "confidence": tsig.confidence,
+            "grade": agg.get("grade"),
+            "score_normalized_100": agg.get("score_normalized_100", agg["total_score"]),
+            "total_score": agg["total_score"],
+        },
+        "snapshot_summary": {
+            "fetched_at": snapshot.get("fetched_at"),
+            "price": snapshot.get("price"),
+            "info": {
+                k: snapshot.get("info", {}).get(k)
+                for k in (
+                    "longName",
+                    "sector",
+                    "industry",
+                    "marketCap",
+                    "trailingPE",
+                    "forwardPE",
+                )
+            },
+            "news_count": len(snapshot.get("news") or []),
+        },
+        "news_enrichment": news_enrichment,
+        "context": context,
+        "report_md": report_md,
+        "eval": eval_out,
+        "signal": sig_json,
+        "token_check": budget,
+        "has_news_enrichment_file": news_path.is_file(),
+    }
 
 
 def _run_batch(cfg: dict, tickers: list[str], date_str: str, args: argparse.Namespace) -> None:

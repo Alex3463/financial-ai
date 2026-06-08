@@ -15,6 +15,7 @@ Yahoo Finance(`yfinance`)로 주식 데이터를 모으고, LLM(기본 **OpenAI 
 |------|------|------|
 | **메인 진입점** | `scripts/run_pipeline.py` | 수집·뉴스 enrich → 피처·컨텍스트 → 리포트 → 평가 → 신호·CSV 오케스트레이션 |
 | 보조 | `scripts/list_gateway_models.py` | 사용 가능 LLM 모델 목록만 조회 (`run_pipeline.py --list-models` 와 동등 목적) |
+| **데모 대시보드** | `scripts/run_dashboard.py` | 브라우저에서 티커 입력 → 파이프라인 실행 → 탭별 결과 조회 |
 | 에이전트 가이드 | [AGENTS.md](AGENTS.md) | Codex/자동화 도구용 레포 규칙 요약 |
 | Claude Code | [CLAUDE.md](CLAUDE.md) | Claude Code용 동일 계열 안내 |
 
@@ -120,6 +121,48 @@ uv run scripts/run_pipeline.py --tickers-file tickers.txt
 
 배치 결과는 `artifacts/_batch/<날짜>/batch_summary.json`에 요약 저장되며, 실패가 있으면 `errors.json`이 같이 생성됩니다.
 
+### 웹 대시보드 (탭형 데모 UI)
+
+CLI 대신 브라우저에서 파이프라인을 돌리고 결과를 탭으로 볼 때 사용합니다.
+
+```bash
+uv run scripts/run_dashboard.py
+# 기본: http://127.0.0.1:8765/
+
+# 인터넷 공개 URL (누구나 접속) — cloudflared 필요
+brew install cloudflared
+uv run scripts/run_dashboard.py --public
+
+# 같은 Wi‑Fi/LAN 기기에서 접속
+uv run scripts/run_dashboard.py --lan
+```
+
+- 티커·날짜 입력 후 **분석 실행** → 백그라운드 Job으로 `run_single_pipeline()` 호출
+- 탭: 개요 / 1·5 데이터·뉴스 / 2·5 컨텍스트 / 3·5 리포트 / 4·5 평가 / 5·5 신호
+- **이력** 패널에서 과거 `artifacts/<티커>/<날짜>/` 산출물을 다시 불러올 수 있음
+- 공유 링크: 결과 화면 URL이 `#AAPL/2026-06-08` 형태로 갱신됨 (붙여넣기 공유 가능)
+- **캐시**: 같은 티커·날짜에 완료된 산출물(`snapshot/context/eval/signal` + 리포트)이 있으면 **재생성 없이** 디스크에서 불러옴 → 공개 URL에서도 LLM 비용·중복 실행 방지
+- 강제 재생성: UI **「캐시 무시」** 체크 또는 API `force_refresh: true`
+- `--public` 실행 시 콘솔·헤더에 `https://….trycloudflare.com` 공개 URL 표시
+- 옵션: `--host`, `--port` (기본 `127.0.0.1:8765`), `--lan`, `--public`
+
+구현: `src/web/` (FastAPI + `static/`). API: `/api/health`, `/api/info`, `/api/history`, `/api/cache/{ticker}`, `/api/analyze`, `/api/jobs/{id}`.
+
+> **주의**: `--public`은 로컬 PC에서 파이프라인이 돌아갑니다. **이미 완료된 티커·날짜는 캐시를 쓰므로** 재요청 시 LLM이 다시 호출되지 않습니다. 처음 요청·캐시 없는 조합만 실제 파이프라인이 실행됩니다. 터널을 끄면(Ctrl+C) URL은 즉시 무효화됩니다.
+
+### 로컬 서버 배포 (launchd)
+
+macOS에서 대시보드를 백그라운드 서비스로 띄울 때:
+
+```bash
+chmod +x scripts/deploy_local.sh
+./scripts/deploy_local.sh
+```
+
+- `uv sync` + 웹 테스트 후 `launchd`에 `com.financialai.dashboard` 등록 (`--public`)
+- 공개 URL은 `logs/dashboard.public_url` 및 `logs/dashboard.stdout.log`에 기록
+- 중지: `launchctl bootout "gui/$(id -u)" ~/Library/LaunchAgents/com.financialai.dashboard.plist`
+
 ### 사용 가능한 LLM 모델만 조회 (선택용)
 
 ```bash
@@ -168,8 +211,10 @@ financial-ai/
 │   └── judge.j2
 ├── scripts/
 │   ├── run_pipeline.py  # ★ 단일 진입점
+│   ├── run_dashboard.py # 웹 데모 대시보드 (uvicorn)
 │   └── list_gateway_models.py
 ├── src/
+│   ├── web/             # FastAPI 데모 대시보드 + static UI
 │   ├── agents/          # Agents 리포트·MCP·postcheck
 │   ├── ingest/yahoo.py
 │   ├── news/enrichment.py
@@ -192,8 +237,9 @@ financial-ai/
 ## 문제 해결
 
 - **`npx: command not found` / Playwright MCP 실행 실패**
-  - Node.js 설치 후 터미널에서 `npx @playwright/mcp@latest --help` 로 확인합니다.
-  - 파이프라인은 MCP 기동 시 PATH에 Homebrew 등 일반 경로를 앞에 붙이지만, 여전히 실패하면 `config.yaml`의 `mcp.playwright.command`에 `npx` **절대 경로**를 넣습니다.
+  - macOS: `brew install node` 후 `which npx` 로 확인합니다. 기본 `config.yaml`은 `/opt/homebrew/bin/npx`를 사용합니다 (Intel Mac은 `/usr/local/bin/npx` 등으로 변경).
+  - 터미널에서 `npx @playwright/mcp@latest --help` 가 동작하는지 확인합니다.
+  - 실패 시 콘솔에 `deep-read 실패: …` 한 줄 요약이 출력되며, 상세는 `artifacts/<티커>/<날짜>/news_enrichment.json`의 `failures[]`를 봅니다.
 
 - **첫 실행에서 뉴스 심층 읽기가 느림**
   `npx`가 `@playwright/mcp` 패키지를 내려받는 첫 실행일 수 있습니다. 이후 실행은 더 빨라집니다.

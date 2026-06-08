@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Financial AI · 티커 분석 데모</title>
+  <link rel="stylesheet" href="/static/style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body>
+  <header>
+    <div class="header-row">
+      <div>
+        <h1>Financial AI · 티커 분석 리포트 데모</h1>
+        <p>Yahoo Finance 수집 → 뉴스 enrich → LLM 리포트 → 평가 → 신호 (파이프라인 1~5단계)</p>
+      </div>
+      <div id="share-box" class="share-box" hidden>
+        <span class="share-label">공개 링크</span>
+        <a id="public-url" href="#" target="_blank" rel="noopener"></a>
+        <button type="button" id="copy-url" class="copy-btn">복사</button>
+      </div>
+    </div>
+    <p id="disclaimer" class="disclaimer">투자 권유가 아닙니다. 생성물은 참고용 데모입니다.</p>
+  </header>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <h2>분석 실행</h2>
+      <form id="form">
+        <label for="ticker">티커</label>
+        <input id="ticker" type="text" placeholder="AAPL, TSLA, NVDA, 005930.KS" required />
+
+        <label for="date">기준일 (선택)</label>
+        <input id="date" type="date" title="비우면 오늘(UTC)" />
+
+        <div class="options">
+          <label><input type="checkbox" id="skip_llm" /> LLM 생략 (스텁 리포트, 빠른 데모)</label>
+          <label><input type="checkbox" id="no_judge" checked /> LLM Judge 끄기 (M0 규칙만)</label>
+          <label><input type="checkbox" id="judge" /> Judge 강제 켜기</label>
+          <label><input type="checkbox" id="force_refresh" /> 강제 재생성 (캐시 무시)</label>
+        </div>
+        <p id="cache-hint" class="cache-hint" hidden></p>
+
+        <button type="submit" class="primary" id="submit">
+          <span id="submit-label">리포트 생성</span>
+          <span id="submit-spinner" class="spinner" hidden></span>
+        </button>
+      </form>
+
+      <div id="progress" class="progress-box"></div>
+
+      <h2 style="margin-top:1.5rem">최근 실행</h2>
+      <div id="history" class="history-list"></div>
+    </aside>
+
+    <main class="main">
+      <div id="empty" class="empty-state">
+        <p>왼쪽에서 티커를 입력하고 <strong>리포트 생성</strong>을 누르세요.</p>
+        <p style="font-size:0.85rem">또는 아래 <strong>최근 실행</strong>에서 기존 산출물을 불러올 수 있습니다.</p>
+      </div>
+
+      <div id="results" style="display:none">
+        <nav id="tabs" class="tabs"></nav>
+        <div id="panels"></div>
+      </div>
+    </main>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

@@ -70,6 +70,12 @@ def _resolve_command(command: str, *, path: str | None = None) -> str:
             p = Path(candidate)
             if p.exists():
                 return str(p)
+        raise RuntimeError(
+            "mcp.playwright.command is set to 'npx', but 'npx' was not found on PATH. "
+            "Install Node.js (e.g. `brew install node`) or set config.yaml "
+            "mcp.playwright.command to an absolute path such as "
+            "'/opt/homebrew/bin/npx'."
+        )
 
     if command == "uvx":
         fallback = Path.home() / ".local" / "bin" / "uvx"

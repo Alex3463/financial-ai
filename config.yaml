@@ -27,7 +27,8 @@ mcp:
     client_session_timeout_seconds: 30
     max_retry_attempts: 1
   playwright:
-    command: "npx"
+    # GUI/IDE 터미널에서 PATH에 npx가 없을 수 있어 Homebrew 절대 경로 권장
+    command: "/opt/homebrew/bin/npx"
     args: ["@playwright/mcp@latest"]
     env: {}
     client_session_timeout_seconds: 30
