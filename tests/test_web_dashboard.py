@@ -33,6 +33,14 @@ def test_history_endpoint() -> None:
     assert isinstance(data["items"], list)
 
 
+def test_community_endpoint() -> None:
+    client = TestClient(app)
+    data = client.get("/api/runs/AAPL/2026-06-08").json()
+    if data:
+        assert "community" in data
+        assert "raw" in data["community"] or data["community"] == {}
+
+
 def test_visitors_endpoint() -> None:
     client = TestClient(app)
     client.get("/api/health")

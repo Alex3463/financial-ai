@@ -30,6 +30,7 @@ const TABS = [
   { id: "summary", label: "요약" },
   { id: "report", label: "리포트" },
   { id: "news", label: "뉴스" },
+  { id: "board", label: "종토방" },
   { id: "details", label: "상세 데이터" },
 ];
 
@@ -117,6 +118,15 @@ function renderSummary(data) {
   const thesis = hero.thesis.length ? hero.thesis : hero.bullets;
   const risks = hero.risks.length ? hero.risks : [];
   const sentimentBanner = renderSummarySentimentBanner(data);
+  const comm = (data.community || {}).summary || {};
+  const boardHint =
+    comm.status === "ok" && comm.n
+      ? `<div class="highlight-box board-hint ${boardMoodClass(comm.sentiment_score)}">
+          <span class="highlight-label">종토방 여론 (Yahoo)</span>
+          <p>긍정 ${(comm.pos_ratio * 100).toFixed(0)}% · 부정 ${(comm.neg_ratio * 100).toFixed(0)}% · ${comm.n}건
+          <span class="muted-inline"> — <a href="#" class="tab-link" data-tab="board">종토방 탭</a>에서 전체 보기</span></p>
+        </div>`
+      : "";
 
   el.innerHTML = `
     <div class="hero">
@@ -138,6 +148,7 @@ function renderSummary(data) {
     </div>
 
     ${sentimentBanner}
+    ${boardHint}
     ${hero.catalyst ? `<div class="highlight-box"><span class="highlight-label">핵심 쟁점</span><p>${esc(hero.catalyst)}</p></div>` : ""}
     ${hero.event ? `<div class="highlight-box warn"><span class="highlight-label">지금 봐야 할 이벤트</span><p>${esc(hero.event)}</p></div>` : ""}
 
@@ -145,6 +156,12 @@ function renderSummary(data) {
     ${risks.length ? `<section class="block risk"><h3>리스크 트리거</h3><ul class="clean-list">${risks.slice(0, 5).map((t) => `<li>${esc(t)}</li>`).join("")}</ul></section>` : ""}
     ${hero.conclusionBullets.length ? `<section class="block"><h3>한 줄 결론</h3><ul class="clean-list">${hero.conclusionBullets.map((t) => `<li>${esc(t)}</li>`).join("")}</ul></section>` : ""}
   `;
+  el.querySelectorAll(".tab-link").forEach((a) => {
+    a.addEventListener("click", (e) => {
+      e.preventDefault();
+      switchTab(a.dataset.tab);
+    });
+  });
 }
 
 function renderReport(data) {
@@ -336,6 +353,141 @@ function renderNews(data) {
   el.innerHTML = `${hero}<div class="news-grid">${cards}</div>`;
 }
 
+function formatBoardTime(raw) {
+  if (!raw) return "";
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return String(raw).slice(0, 16);
+  const diff = (Date.now() - d.getTime()) / 1000;
+  if (diff < 3600) return `${Math.max(1, Math.floor(diff / 60))}분 전`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}시간 전`;
+  return d.toLocaleDateString("ko-KR", { month: "short", day: "numeric" });
+}
+
+function boardMoodClass(score) {
+  if (score == null || Number.isNaN(Number(score))) return "sent-neu";
+  const s = Number(score);
+  if (s > 0.1) return "sent-pos";
+  if (s < -0.1) return "sent-neg";
+  return "sent-neu";
+}
+
+function renderBoardSummaryBar(summary) {
+  if (!summary || summary.status !== "ok") return "";
+  const score = summary.sentiment_score;
+  const cls = boardMoodClass(score);
+  const pos = summary.pos_ratio != null ? `${(summary.pos_ratio * 100).toFixed(0)}%` : "—";
+  const neg = summary.neg_ratio != null ? `${(summary.neg_ratio * 100).toFixed(0)}%` : "—";
+  const terms = (summary.top_terms || []).slice(0, 6);
+  const moodLabel = score > 0.1 ? "긍정 우세" : score < -0.1 ? "부정 우세" : "중립";
+  return `<div class="board-summary ${cls}">
+    <div class="board-summary-row">
+      <span class="board-mood">${esc(moodLabel)}</span>
+      <span class="muted-inline">긍정 ${pos} · 부정 ${neg} · 점수 ${Number(score).toFixed(2)}</span>
+    </div>
+    ${terms.length ? `<div class="board-keywords">${terms.map((t) => `<span class="kw-tag">#${esc(t)}</span>`).join("")}</div>` : ""}
+    <p class="board-disclaimer muted-inline">${esc(summary.note || "리테일 커뮤니티 여론(참고).")}</p>
+  </div>`;
+}
+
+function renderCommunityBoard(data) {
+  const el = $("#panel-board");
+  const pack = data.community || {};
+  const raw = pack.raw || {};
+  const summary = pack.summary || {};
+  const posts = raw.conversations || [];
+  const source = raw.source_url || summary.source_url || "";
+
+  if (raw.status === "error" || (!posts.length && summary.status !== "ok")) {
+    const err = raw.error || summary.note || "커뮤니티 글을 가져오지 못했습니다.";
+    el.innerHTML = `<section class="board-empty">
+      <h3>Yahoo Finance 종토방</h3>
+      <p>${esc(err)}</p>
+      <p class="muted-inline">Yahoo가 community 페이지를 막거나 404를 반환할 수 있습니다.</p>
+      <div class="board-actions">
+        <button type="button" class="secondary-btn" id="board-refresh">다시 수집</button>
+        ${source ? `<a class="secondary-btn link-btn" href="${esc(source)}" target="_blank" rel="noopener">Yahoo 원문</a>` : ""}
+      </div>
+    </section>`;
+    $("#board-refresh")?.addEventListener("click", () => refreshCommunity(data));
+    return;
+  }
+
+  if (!posts.length) {
+    el.innerHTML = `<section class="board-empty">
+      <h3>종토방</h3>
+      <p class="muted-center">표시할 게시글이 없습니다.</p>
+      <button type="button" class="secondary-btn" id="board-refresh">다시 수집</button>
+    </section>`;
+    $("#board-refresh")?.addEventListener("click", () => refreshCommunity(data));
+    return;
+  }
+
+  const summaryBar = renderBoardSummaryBar(summary);
+  const list = posts
+    .map((p) => {
+      const author = p.author || "익명";
+      const body = p.text || "";
+      const votes = p.upvotes != null ? `👍 ${p.upvotes}` : "";
+      const mood = boardMoodClass(
+        /매수|buy|bull|상승|moon/i.test(body) && !/매도|sell|bear|하락/i.test(body)
+          ? 0.2
+          : /매도|sell|bear|하락|dump|crash/i.test(body)
+            ? -0.2
+            : 0
+      );
+      return `<li class="board-post ${mood}">
+        <div class="post-meta">
+          <span class="post-author">${esc(author)}</span>
+          <span class="post-time">${esc(formatBoardTime(p.created_at))}</span>
+          ${votes ? `<span class="post-votes">${votes}</span>` : ""}
+        </div>
+        <p class="post-body">${esc(body)}</p>
+      </li>`;
+    })
+    .join("");
+
+  el.innerHTML = `
+    <section class="board-panel">
+      <div class="board-head">
+        <div>
+          <h3 class="board-title">Yahoo Finance · 종목 토론방</h3>
+          <p class="muted-inline">${posts.length}건 · 참고용 리테일 여론</p>
+        </div>
+        <div class="board-actions">
+          <button type="button" class="secondary-btn" id="board-refresh">새로고침</button>
+          ${source ? `<a class="secondary-btn link-btn" href="${esc(source)}" target="_blank" rel="noopener">Yahoo</a>` : ""}
+        </div>
+      </div>
+      ${summaryBar}
+      <ul class="board-posts">${list}</ul>
+    </section>`;
+  $("#board-refresh")?.addEventListener("click", () => refreshCommunity(data));
+}
+
+async function refreshCommunity(data) {
+  if (!data.ticker || !data.date) return;
+  const el = $("#panel-board");
+  el.innerHTML = `<p class="muted-center">Yahoo 종토방 수집 중…</p>`;
+  try {
+    const res = await fetch(
+      `/api/community/${encodeURIComponent(data.ticker)}/${encodeURIComponent(data.date)}`,
+      { method: "POST", headers: apiHeaders() }
+    );
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      alert(err.detail || "수집 실패");
+      renderCommunityBoard(data);
+      return;
+    }
+    const body = await res.json();
+    data.community = body.community;
+    currentData = data;
+    renderCommunityBoard(data);
+  } catch (_) {
+    alert("수집 요청 실패");
+    renderCommunityBoard(data);
+  }
+}
 
 function renderDetailsAccordion(title, contentHtml, open = false) {
   return `<details class="accordion" ${open ? "open" : ""}>
@@ -468,6 +620,7 @@ async function renderAll(data) {
   renderReport(data);
   renderSummary(currentData);
   renderNews(currentData);
+  renderCommunityBoard(currentData);
   renderDetails(currentData);
   switchTab("summary");
 }

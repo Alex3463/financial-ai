@@ -5,6 +5,7 @@ import time
 from datetime import datetime, timezone
 from typing import Any
 from urllib.error import URLError
+from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 import pandas as pd
@@ -77,14 +78,29 @@ def _jsonable(value: Any) -> Any:
 
 
 def _fetch_url_text(url: str, *, timeout_s: float = 12.0) -> str:
+    import gzip
+
     ua = (
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
         "AppleWebKit/537.36 (KHTML, like Gecko) "
         "Chrome/122.0.0.0 Safari/537.36"
     )
-    req = Request(url, headers={"User-Agent": ua, "Accept-Language": "en-US,en;q=0.9"})
+    req = Request(
+        url,
+        headers={
+            "User-Agent": ua,
+            "Accept-Language": "en-US,en;q=0.9",
+            "Accept": "text/html,application/xhtml+xml",
+        },
+    )
     with urlopen(req, timeout=timeout_s) as resp:  # noqa: S310
         raw = resp.read()
+        encoding = (resp.headers.get("Content-Encoding") or "").lower()
+    if encoding == "gzip" or raw[:2] == b"\x1f\x8b":
+        try:
+            raw = gzip.decompress(raw)
+        except OSError:
+            pass
     try:
         return raw.decode("utf-8")
     except UnicodeDecodeError:
@@ -162,20 +178,35 @@ def _community_conversations_from_html(html: str, *, max_items: int = 20) -> lis
 
 
 def _fetch_yahoo_community(ticker: str, *, max_items: int = 20) -> dict[str, Any]:
-    url = f"https://finance.yahoo.com/quote/{ticker}/community/"
-    try:
-        html = _fetch_url_text(url, timeout_s=12.0)
-        convs = _community_conversations_from_html(html, max_items=max_items)
-        return {
-            "source_url": url,
-            "status": "ok" if convs else "empty",
-            "n_items": len(convs),
-            "conversations": convs,
-        }
-    except URLError as e:
-        return {"source_url": url, "status": "error", "error": str(e)}
-    except Exception as e:
-        return {"source_url": url, "status": "error", "error": str(e)}
+    encoded = quote(ticker, safe="")
+    candidates = [
+        f"https://finance.yahoo.com/quote/{encoded}/community?p={encoded}",
+        f"https://finance.yahoo.com/quote/{encoded}/community/",
+        f"https://finance.yahoo.com/quote/{encoded}/conversations/",
+    ]
+    last_error = ""
+    for url in candidates:
+        try:
+            html = _fetch_url_text(url, timeout_s=12.0)
+            if "err=404" in html[:800] or len(html) < 500:
+                last_error = "page not found or empty"
+                continue
+            convs = _community_conversations_from_html(html, max_items=max_items)
+            return {
+                "source_url": url,
+                "status": "ok" if convs else "empty",
+                "n_items": len(convs),
+                "conversations": convs,
+            }
+        except URLError as e:
+            last_error = str(e)
+        except Exception as e:
+            last_error = str(e)
+    return {
+        "source_url": candidates[0],
+        "status": "error",
+        "error": last_error or "community fetch failed",
+    }
 
 
 def _holder_records(df: pd.DataFrame | None, *, max_rows: int = 5) -> list[dict[str, Any]]:

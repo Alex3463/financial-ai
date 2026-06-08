@@ -24,7 +24,9 @@ from report.composer import today_str  # noqa: E402
 from run_pipeline import load_config, paths_for_date, run_single_pipeline  # noqa: E402
 from web.cache import is_complete_run  # noqa: E402
 from fio.storage import write_json  # noqa: E402
+from ingest.yahoo import _fetch_yahoo_community  # noqa: E402
 from news.sentiment import enrich_with_finbert_sentiment  # noqa: E402
+from report.composer import ContextBuilder  # noqa: E402
 from web.security import validate_date, validate_ticker  # noqa: E402
 
 
@@ -138,6 +140,7 @@ def load_existing_run(ticker: str, date: str) -> dict[str, Any] | None:
             "news_count": len((snapshot or {}).get("news") or []),
         },
         "news_enrichment": news_enrichment or {},
+        "community": _community_payload(snapshot, context),
         "context": context or {},
         "report_md": report_md,
         "eval": eval_data or {},
@@ -147,6 +150,39 @@ def load_existing_run(ticker: str, date: str) -> dict[str, Any] | None:
         "cached": True,
         "cache_hit": True,
     }
+
+
+def _community_payload(
+    snapshot: dict[str, Any] | None,
+    context: dict[str, Any] | None,
+) -> dict[str, Any]:
+    raw = (snapshot or {}).get("community") or {}
+    summary = ((context or {}).get("news_summary") or {}).get("community") or {}
+    if summary.get("status") == "ok":
+        return {"raw": raw, "summary": summary}
+    if raw.get("status") == "ok" and raw.get("conversations"):
+        summary = ContextBuilder()._community_summary(raw)  # noqa: SLF001
+        return {"raw": raw, "summary": summary}
+    return {"raw": raw, "summary": summary}
+
+
+def refresh_community_for_run(ticker: str, date: str, *, max_items: int = 20) -> dict[str, Any]:
+    """Yahoo community 재수집 후 snapshot.json 갱신."""
+    cfg = load_config()
+    sym = validate_ticker(ticker)
+    date_str = validate_date(date)
+    paths = paths_for_date(cfg, sym, date_str, ensure_dirs=False)
+    art = paths["artifacts_dir"]
+    snapshot_path = art / "snapshot.json"
+    if not snapshot_path.is_file():
+        return {"error": "snapshot.json 없음"}
+
+    snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
+    community = _fetch_yahoo_community(sym, max_items=max_items)
+    snapshot["community"] = community
+    write_json(snapshot_path, snapshot)
+    summary = ContextBuilder()._community_summary(community)  # noqa: SLF001
+    return {"raw": community, "summary": summary}
 
 
 def compute_sentiment_for_run(ticker: str, date: str) -> dict[str, Any]:

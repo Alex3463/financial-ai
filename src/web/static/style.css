@@ -855,6 +855,153 @@ ul.bullets li {
   text-align: center;
 }
 
+/* ── 종토방 (Yahoo community) ── */
+.board-panel,
+.board-empty {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1rem 1.1rem;
+}
+
+.board-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.board-title {
+  margin: 0 0 0.2rem;
+  font-size: 1.05rem;
+}
+
+.board-actions {
+  display: flex;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+.secondary-btn {
+  padding: 0.35rem 0.7rem;
+  font-size: 0.78rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface2);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.secondary-btn:hover {
+  border-color: #4b5563;
+}
+
+.link-btn {
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+}
+
+.board-summary {
+  border-radius: 8px;
+  padding: 0.65rem 0.75rem;
+  margin-bottom: 0.85rem;
+  border: 1px solid var(--border);
+}
+
+.board-summary.sent-pos { background: rgba(34, 197, 94, 0.08); border-color: #166534; }
+.board-summary.sent-neg { background: rgba(239, 68, 68, 0.08); border-color: #991b1b; }
+.board-summary.sent-neu { background: rgba(148, 163, 184, 0.08); }
+
+.board-summary-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: baseline;
+}
+
+.board-mood {
+  font-weight: 700;
+  font-size: 0.95rem;
+}
+
+.board-keywords {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.45rem;
+}
+
+.kw-tag {
+  font-size: 0.72rem;
+  padding: 0.15rem 0.45rem;
+  border-radius: 999px;
+  background: rgba(59, 130, 246, 0.15);
+  color: #93c5fd;
+}
+
+.board-disclaimer {
+  margin: 0.4rem 0 0;
+  font-size: 0.72rem;
+}
+
+.board-posts {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.board-post {
+  padding: 0.7rem 0.8rem;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.18);
+  border-left: 3px solid var(--border);
+}
+
+.board-post.sent-pos { border-left-color: #22c55e; }
+.board-post.sent-neg { border-left-color: #ef4444; }
+.board-post.sent-neu { border-left-color: #64748b; }
+
+.post-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  font-size: 0.72rem;
+  color: var(--muted);
+  margin-bottom: 0.35rem;
+}
+
+.post-author {
+  font-weight: 600;
+  color: #93c5fd;
+}
+
+.post-body {
+  margin: 0;
+  font-size: 0.88rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.board-empty h3 {
+  margin: 0 0 0.5rem;
+}
+
+.highlight-box.board-hint a.tab-link {
+  color: #93c5fd;
+  text-decoration: none;
+}
+
+.highlight-box.board-hint a.tab-link:hover {
+  text-decoration: underline;
+}
+
 /* ── 상세 아코디언 ── */
 .accordion {
   background: var(--surface);

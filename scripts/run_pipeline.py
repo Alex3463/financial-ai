@@ -416,6 +416,10 @@ def run_single_pipeline(
             "news_count": len(snapshot.get("news") or []),
         },
         "news_enrichment": news_enrichment,
+        "community": {
+            "raw": snapshot.get("community") or {},
+            "summary": (context.get("news_summary") or {}).get("community") or {},
+        },
         "context": context,
         "report_md": report_md,
         "eval": eval_out,

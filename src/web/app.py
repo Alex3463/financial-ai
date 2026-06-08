@@ -16,6 +16,7 @@ from web.pipeline_runner import (
     compute_sentiment_for_run,
     list_history,
     load_existing_run,
+    refresh_community_for_run,
     run_for_dashboard,
 )
 from web.security import (
@@ -148,6 +149,32 @@ def get_run(ticker: str, date: str) -> dict[str, Any]:
     if not data:
         raise HTTPException(status_code=404, detail="해당 티커/날짜 산출물이 없습니다.")
     return sanitize_run_paths(data)
+
+
+@app.post("/api/community/{ticker}/{date}")
+def run_community_refresh(ticker: str, date: str, request: Request) -> dict[str, Any]:
+    """Yahoo Finance 커뮤니티(종토방) 글 재수집."""
+    verify_request_token(request)
+    sym = validate_ticker(ticker)
+    date_str = validate_date(date)
+    payload = refresh_community_for_run(sym, date_str)
+    if payload.get("error"):
+        raise HTTPException(status_code=404, detail=payload["error"])
+    return {"ticker": sym, "date": date_str, "community": payload}
+
+
+@app.get("/api/community/{ticker}/{date}")
+def get_community(ticker: str, date: str) -> dict[str, Any]:
+    sym = validate_ticker(ticker)
+    date_str = validate_date(date)
+    data = load_existing_run(sym, date_str)
+    if not data:
+        raise HTTPException(status_code=404, detail="해당 티커/날짜 산출물이 없습니다.")
+    return {
+        "ticker": sym,
+        "date": date_str,
+        "community": data.get("community") or {},
+    }
 
 
 @app.post("/api/sentiment/{ticker}/{date}")

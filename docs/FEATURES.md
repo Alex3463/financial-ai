@@ -151,6 +151,7 @@ M0 항목 + Judge 6항목:
 | **요약** | 투자 의견·현재가·목표가·손절·핵심 근거·리스크 | 3/5 리포트 + 4/5 평가 + 5/5 신호 요약 |
 | **리포트** | 6섹션 카드 (투자 요약·재무·성장·리스크·밸류·결론) | 3/5 Markdown 파싱 |
 | **뉴스** | deep-read 기사 + **FinBERT 감성** 배지·확률 바·종합 감성 히어로 | 1/5 news_enrichment |
+| **종토방** | Yahoo Finance community 게시판 UI·여론 요약·키워드 | 1/5 snapshot.community |
 | **상세 데이터** | 주가 캔들 차트·평가 breakdown·원본 JSON | 1/5 snapshot + 2/5 context + 4/5 eval + 5/5 signal |
 
 ### 헤더
