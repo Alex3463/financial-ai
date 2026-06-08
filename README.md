@@ -50,6 +50,7 @@ uv run scripts/run_dashboard.py --public   # cloudflared 필요, ?token= URL 공
 | [docs/FEATURES.md](docs/FEATURES.md) | 기능 목록 |
 | [docs/DEMO_GUIDE.md](docs/DEMO_GUIDE.md) | **발표 당일** 체크리스트 |
 | [docs/SECURITY.md](docs/SECURITY.md) | 웹 공개·토큰·속도 제한 |
+| [docs/TECH_QA_PREP.md](docs/TECH_QA_PREP.md) | **발표 후 기술 Q&A** (질문·답 40선) |
 | [docs/SOURCE_MAP.md](docs/SOURCE_MAP.md) | 소스코드 맵 |
 | [docs/ONBOARDING.md](docs/ONBOARDING.md) | 개발자 온보딩 |
 

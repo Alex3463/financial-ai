@@ -402,7 +402,7 @@ function renderCommunityBoard(data) {
     el.innerHTML = `<section class="board-empty">
       <h3>Yahoo Finance 종토방</h3>
       <p>${esc(err)}</p>
-      <p class="muted-inline">Yahoo가 community 페이지를 막거나 404를 반환할 수 있습니다.</p>
+      <p class="muted-inline">일시적 네트워크 오류·티커 미지원 시 실패할 수 있습니다. (수집: Yahoo GraphQL community API)</p>
       <div class="board-actions">
         <button type="button" class="secondary-btn" id="board-refresh">다시 수집</button>
         ${source ? `<a class="secondary-btn link-btn" href="${esc(source)}" target="_blank" rel="noopener">Yahoo 원문</a>` : ""}

@@ -14,6 +14,7 @@
 | **[DEMO_GUIDE.md](DEMO_GUIDE.md)** | 발표 당일 | 체크리스트, CLI·대시보드 실행, 탭별 시연 포인트, 트러블슈팅 |
 | **[SOURCE_MAP.md](SOURCE_MAP.md)** | 「소스코드 구성」 질문 | 디렉터리 트리와 주요 파일 역할 |
 | **[SECURITY.md](SECURITY.md)** | 웹 공개·보안 Q&A | 위험 목록, 토큰·속도 제한, 운영 권장 |
+| **[TECH_QA_PREP.md](TECH_QA_PREP.md)** | **발표 후 기술 Q&A** | 티커→리포트 구현 디테일, 예시 질문·답 40선 |
 
 ---
 

@@ -34,7 +34,7 @@ uv run scripts/run_pipeline.py \
 
 - `news_enrichment.json` → `sentiment_analysis.articles` 존재
 - `deep_read_articles` 5건 근처 (뉴스 부족 시 그 이하)
-- `snapshot.json` → `community` (Yahoo 404 시 `status: error` — 종토방 탭에서 「다시 수집」 시도)
+- `snapshot.json` → `community` (`status: ok` + `conversations` — Yahoo GraphQL, `messageBoardId` 기반)
 
 ### 네트워크·전원
 
@@ -159,7 +159,7 @@ launchctl bootout "gui/$(id -u)" ~/Library/LaunchAgents/com.financialai.dashboar
 
 - Yahoo Finance **community** 게시판 카드 (제목·작성자·본문·추천/댓글)
 - **여론 요약** 배너 (긍정/부정/중립 비율)
-- 데이터 없을 때 「다시 수집」 — Yahoo 404·지역 제한 시 빈 상태 가능
+- 데이터 없을 때 「다시 수집」 — 소형 종목은 게시글 `empty` 가능 (011070.KS 등)
 
 ### 6. 상세 데이터 탭
 

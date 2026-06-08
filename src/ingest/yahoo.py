@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 from datetime import datetime, timezone
 from typing import Any
@@ -107,106 +108,187 @@ def _fetch_url_text(url: str, *, timeout_s: float = 12.0) -> str:
         return raw.decode("utf-8", errors="ignore")
 
 
-def _extract_next_data_json(html: str) -> dict[str, Any] | None:
-    marker = 'id="__NEXT_DATA__"'
-    if marker not in html:
-        return None
+_COMMUNITY_GQL_ENDPOINT = "https://yfc-server-query.finance.yahoo.com/"
+_COMMUNITY_GQL_QUERY = """
+query GetContentByAssociatedContentId($contentId: String!, $sortOrder: SortOrder, $first: Int!, $after: Cursor) {
+  getContentByAssociatedContentId(contentId: $contentId, sortOrder: $sortOrder) {
+    contentUuid
+    newFeed(first: $first, after: $after) {
+      pageInfo { endCursor hasNextPage }
+      edges {
+        cursor
+        node {
+          uuid
+          contentType
+          ... on Post {
+            body
+            createdAt
+            publishedAt
+            user { profile { username name } }
+            votes { upvoteCount }
+            comments { count }
+          }
+        }
+      }
+    }
+  }
+}
+"""
+
+
+def _community_source_url(ticker: str) -> str:
+    encoded = quote(ticker, safe="")
+    return f"https://finance.yahoo.com/quote/{encoded}/community/"
+
+
+def _message_board_id(ticker: str, hint: str | None = None) -> str:
+    if hint:
+        return str(hint).strip()
     try:
-        start = html.index(marker)
-        start = html.index(">", start) + 1
-        end = html.index("</script>", start)
-        payload = html[start:end].strip()
-        if not payload:
-            return None
-        return json.loads(payload)
+        info = yf.Ticker(ticker).info or {}
+        return str(info.get("messageBoardId") or "").strip()
     except Exception:
-        return None
+        return ""
 
 
-def _walk_find_conversations(obj: Any) -> list[dict[str, Any]]:
-    found: list[dict[str, Any]] = []
-
-    def walk(x: Any) -> None:
-        if isinstance(x, dict):
-            if isinstance(x.get("conversations"), list):
-                for item in x.get("conversations") or []:
-                    if isinstance(item, dict):
-                        found.append(item)
-            for v in x.values():
-                walk(v)
-        elif isinstance(x, list):
-            for v in x:
-                walk(v)
-
-    walk(obj)
-    return found
+def _clean_community_body(body: str) -> str:
+    text = re.sub(r"!\[[^\]]*\]\([^)]+\)", "", body or "")
+    text = re.sub(r"\s+", " ", text).strip()
+    return text[:500]
 
 
-def _community_conversations_from_html(html: str, *, max_items: int = 20) -> list[dict[str, Any]]:
-    data = _extract_next_data_json(html)
-    if not data:
-        return []
-    convs = _walk_find_conversations(data)
+def _posts_from_gql_edges(edges: list[Any], *, max_items: int) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
-    for c in convs:
-        msg = (
-            c.get("message")
-            or (c.get("content") or {}).get("text")
-            or (c.get("content") or {}).get("body")
-            or ""
-        )
-        if not isinstance(msg, str):
-            msg = str(msg)
-        msg = " ".join(msg.split()).strip()
+    for edge in edges:
+        if not isinstance(edge, dict):
+            continue
+        node = edge.get("node")
+        if not isinstance(node, dict):
+            continue
+        if str(node.get("contentType") or "").upper() != "POST":
+            continue
+        msg = _clean_community_body(str(node.get("body") or ""))
         if not msg:
             continue
-        msg = msg[:240]
-        author = c.get("userDisplayName") or c.get("authorName") or ""
-        created = c.get("createdAt") or c.get("created_at") or ""
-        up = c.get("reactionCount") or c.get("upVotes") or c.get("upvoteCount") or None
-        rec: dict[str, Any] = {"text": msg}
+        profile = ((node.get("user") or {}).get("profile") or {}) if isinstance(node.get("user"), dict) else {}
+        author = str(profile.get("name") or profile.get("username") or "").strip()
+        created = str(node.get("createdAt") or node.get("publishedAt") or "").strip()
+        votes = (node.get("votes") or {}) if isinstance(node.get("votes"), dict) else {}
+        comments = (node.get("comments") or {}) if isinstance(node.get("comments"), dict) else {}
+        rec: dict[str, Any] = {"text": msg[:240]}
         if author:
-            rec["author"] = str(author)[:64]
+            rec["author"] = author[:64]
         if created:
-            rec["created_at"] = str(created)[:32]
+            rec["created_at"] = created[:32]
+        up = votes.get("upvoteCount")
         if isinstance(up, (int, float)):
             rec["upvotes"] = int(up)
+        comment_count = comments.get("count")
+        if isinstance(comment_count, (int, float)):
+            rec["comment_count"] = int(comment_count)
+        post_id = node.get("uuid")
+        if isinstance(post_id, str) and post_id:
+            rec["post_id"] = post_id
         out.append(rec)
         if len(out) >= max_items:
             break
     return out
 
 
-def _fetch_yahoo_community(ticker: str, *, max_items: int = 20) -> dict[str, Any]:
-    encoded = quote(ticker, safe="")
-    candidates = [
-        f"https://finance.yahoo.com/quote/{encoded}/community?p={encoded}",
-        f"https://finance.yahoo.com/quote/{encoded}/community/",
-        f"https://finance.yahoo.com/quote/{encoded}/conversations/",
-    ]
-    last_error = ""
-    for url in candidates:
-        try:
-            html = _fetch_url_text(url, timeout_s=12.0)
-            if "err=404" in html[:800] or len(html) < 500:
-                last_error = "page not found or empty"
-                continue
-            convs = _community_conversations_from_html(html, max_items=max_items)
-            return {
-                "source_url": url,
-                "status": "ok" if convs else "empty",
-                "n_items": len(convs),
-                "conversations": convs,
-            }
-        except URLError as e:
-            last_error = str(e)
-        except Exception as e:
-            last_error = str(e)
-    return {
-        "source_url": candidates[0],
-        "status": "error",
-        "error": last_error or "community fetch failed",
-    }
+def _fetch_yahoo_community_gql(
+    ticker: str,
+    board_id: str,
+    *,
+    max_items: int,
+) -> list[dict[str, Any]]:
+    payload = json.dumps(
+        {
+            "operationName": "GetContentByAssociatedContentId",
+            "query": _COMMUNITY_GQL_QUERY,
+            "variables": {
+                "contentId": board_id,
+                "sortOrder": "TIME_DESC",
+                "first": max(1, min(max_items, 50)),
+                "after": None,
+            },
+        }
+    ).encode("utf-8")
+    referer = _community_source_url(ticker)
+    req = Request(
+        _COMMUNITY_GQL_ENDPOINT,
+        data=payload,
+        headers={
+            "User-Agent": (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/122.0.0.0 Safari/537.36"
+            ),
+            "Content-Type": "application/json",
+            "Accept": "application/graphql-response+json, application/json",
+            "Origin": "https://finance.yahoo.com",
+            "Referer": referer,
+        },
+        method="POST",
+    )
+    with urlopen(req, timeout=15.0) as resp:  # noqa: S310
+        raw = json.loads(resp.read().decode("utf-8"))
+    if isinstance(raw.get("errors"), list) and raw["errors"]:
+        first = raw["errors"][0]
+        message = first.get("message") if isinstance(first, dict) else str(first)
+        raise RuntimeError(message or "GraphQL community query failed")
+    feed = (
+        ((raw.get("data") or {}).get("getContentByAssociatedContentId") or {}).get("newFeed")
+        or {}
+    )
+    edges = feed.get("edges") if isinstance(feed.get("edges"), list) else []
+    return _posts_from_gql_edges(edges, max_items=max_items)
+
+
+def _fetch_yahoo_community(
+    ticker: str,
+    *,
+    max_items: int = 20,
+    message_board_id: str | None = None,
+) -> dict[str, Any]:
+    """
+    Yahoo Finance QSP community — GraphQL feed keyed by yfinance messageBoardId (finmb_*).
+    Legacy HTML /community/ routes return 404; the SPA loads posts via yfc-server-query.
+    """
+    source_url = _community_source_url(ticker)
+    board_id = _message_board_id(ticker, message_board_id)
+    if not board_id:
+        return {
+            "source_url": source_url,
+            "status": "error",
+            "error": "messageBoardId not found for ticker",
+            "fetch_method": "graphql",
+        }
+    try:
+        convs = _fetch_yahoo_community_gql(ticker, board_id, max_items=max_items)
+        return {
+            "source_url": source_url,
+            "status": "ok" if convs else "empty",
+            "n_items": len(convs),
+            "conversations": convs,
+            "message_board_id": board_id,
+            "fetch_method": "graphql",
+        }
+    except URLError as e:
+        return {
+            "source_url": source_url,
+            "status": "error",
+            "error": str(e),
+            "message_board_id": board_id,
+            "fetch_method": "graphql",
+        }
+    except Exception as e:
+        return {
+            "source_url": source_url,
+            "status": "error",
+            "error": str(e),
+            "message_board_id": board_id,
+            "fetch_method": "graphql",
+        }
 
 
 def _holder_records(df: pd.DataFrame | None, *, max_rows: int = 5) -> list[dict[str, Any]]:
@@ -468,7 +550,11 @@ class YahooIngester:
         community: dict[str, Any] = {}
         try:
             # Best-effort: may be blocked/geo-restricted; never fail ingestion.
-            community = _fetch_yahoo_community(ticker, max_items=20)
+            community = _fetch_yahoo_community(
+                ticker,
+                max_items=20,
+                message_board_id=str(info.get("messageBoardId") or "") or None,
+            )
         except Exception:
             community = {}
 
