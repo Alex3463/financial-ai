@@ -1,22 +1,12 @@
 from __future__ import annotations
 
-import re
 from typing import Any
 
 from agents.gateway import composer_max_tokens, dump_json, load_prompt_text, run_structured_agent
 from agents.schemas import EtfComposerInput, EtfComposerOutput, EtfHoldingsOutput
+from agents.source_citations import polish_etf_report_markdown
 
 _PROMPT = load_prompt_text("composer_etf.md")
-_INTERNAL_SOURCE_TOKENS = (
-    "Input slice",
-    "입력 슬라이스",
-    "슬라이스 입력",
-    "price_technicals",
-    "cashflow_summary",
-    "consensus_summary",
-    "financials.health",
-    "market_context",
-)
 
 
 def _format_weight(value: float | None) -> str:
@@ -76,25 +66,6 @@ def _build_input(etf_input: EtfComposerInput) -> str:
     )
 
 
-def _polish_report_markdown(report_md: str, *, data_as_of: str = "") -> str:
-    """
-    Replace internal/source-leaking tokens inside citations.
-
-    ETF composer output should never mention internal keys like `price_technicals`,
-    but models can still do it; we normalize citations to safe, human-readable sources.
-    """
-    source_suffix = f", {data_as_of}" if data_as_of else ""
-
-    def rewrite_source(match: re.Match[str]) -> str:
-        source = match.group(1)
-        if any(token in source for token in _INTERNAL_SOURCE_TOKENS) or "제공 입력" in source:
-            source = f"yfinance snapshot fields{source_suffix}"
-        source = re.sub(r"제공\s*입력[^;\]]*", f"yfinance snapshot fields{source_suffix}", source)
-        return f"[출처: {source}]"
-
-    return re.sub(r"\[출처:\s*([^\]]+)\]", rewrite_source, report_md)
-
-
 async def run_etf_composer_agent(cfg: dict[str, Any], etf_input: EtfComposerInput) -> EtfComposerOutput:
     output = await run_structured_agent(
         cfg=cfg,
@@ -106,7 +77,7 @@ async def run_etf_composer_agent(cfg: dict[str, Any], etf_input: EtfComposerInpu
     )
     return output.model_copy(
         update={
-            "report_md": _polish_report_markdown(
+            "report_md": polish_etf_report_markdown(
                 output.report_md,
                 data_as_of=str(etf_input.metadata.get("data_as_of", "")),
             )

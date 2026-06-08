@@ -48,6 +48,8 @@
 - `holdings_agent` + `etf_composer_agent` 전용 경로
 - Top Holdings, 보수, AUM, 섹터 비중 등 `funds_data` 활용
 - ETF 전용 postcheck·평가 루브릭 분기
+- **출처 정규화** (`agents/source_citations.py`): LLM이 `provided input`, `fund_operations.expense_ratio` 같은 내부 필드를 써도 저장 전 `Yahoo Finance ETF profile` 등 **엔드유저용 라벨**로 치환
+- 데모 캐시 예: `SPY` / `2026-06-08`
 
 ### MCP 도구 보강
 
@@ -144,12 +146,12 @@ M0 항목 + Judge 6항목:
 - **기본 URL**: `http://127.0.0.1:8765/`
 - **구현**: `src/web/` (FastAPI + 정적 프론트)
 
-### UI 탭 (4개)
+### UI 탭 (5개)
 
 | 탭 | 내용 | 파이프라인 대응 |
 |----|------|-----------------|
-| **요약** | 투자 의견·현재가·목표가·손절·핵심 근거·리스크 | 3/5 리포트 + 4/5 평가 + 5/5 신호 요약 |
-| **리포트** | 6섹션 카드 (투자 요약·재무·성장·리스크·밸류·결론) | 3/5 Markdown 파싱 |
+| **요약** | 투자 의견·현재가·목표가·손절·핵심 근거·리스크 (ETF는 보수·AUM·상위보유 칩) | 3/5 리포트 + 4/5 평가 + 5/5 신호 요약 |
+| **리포트** | 6섹션 구조화 렌더 (주식 KV 카드 / **ETF 전용** 보유표·리스크·전략표) | 3/5 Markdown 파싱 |
 | **뉴스** | deep-read 기사 + **FinBERT 감성** 배지·확률 바·종합 감성 히어로 | 1/5 news_enrichment |
 | **종토방** | Yahoo Finance community 게시판 UI·여론 요약·키워드 | 1/5 snapshot.community |
 | **상세 데이터** | 주가 캔들 차트·평가 breakdown·원본 JSON | 1/5 snapshot + 2/5 context + 4/5 eval + 5/5 signal |

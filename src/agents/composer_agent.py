@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-import re
-
 from agents.gateway import composer_max_tokens, dump_json, load_prompt_text, run_structured_agent
+from agents.source_citations import polish_stock_report_markdown
 from agents.schemas import ComposerInput, ComposerOutput
 
 _PROMPT = load_prompt_text("composer.md")
@@ -124,42 +123,6 @@ def _build_input(composer_input: ComposerInput) -> str:
     )
 
 
-def _polish_report_markdown(report_md: str, *, data_as_of: str = "") -> str:
-    polished = re.sub(r"`?formula_text`?\s*[:：]\s*", "산식: ", report_md)
-    polished = polished.replace("formula_text", "valuation formula")
-    source_suffix = f", {data_as_of}" if data_as_of else ""
-
-    def rewrite_source(match: re.Match[str]) -> str:
-        source = match.group(1)
-        source = re.sub(
-            r"입력:\s*analyst view",
-            f"yfinance analyst view fields{source_suffix}",
-            source,
-            flags=re.I,
-        )
-        source = re.sub(
-            r"입력:\s*valuation analysis",
-            f"yfinance valuation fields{source_suffix}",
-            source,
-            flags=re.I,
-        )
-        source = re.sub(
-            r"AAPL valuation:[^\];]*",
-            f"yfinance valuation fields{source_suffix}",
-            source,
-            flags=re.I,
-        )
-        source = re.sub(
-            r"입력:\s*[^;\]]+",
-            f"yfinance snapshot fields{source_suffix}",
-            source,
-            flags=re.I,
-        )
-        return f"[출처: {source}]"
-
-    return re.sub(r"\[출처:\s*([^\]]+)\]", rewrite_source, polished)
-
-
 async def run_composer_agent(cfg: dict, composer_input: ComposerInput) -> ComposerOutput:
     output = await run_structured_agent(
         cfg=cfg,
@@ -171,7 +134,7 @@ async def run_composer_agent(cfg: dict, composer_input: ComposerInput) -> Compos
     )
     return output.model_copy(
         update={
-            "report_md": _polish_report_markdown(
+            "report_md": polish_stock_report_markdown(
                 output.report_md,
                 data_as_of=str(composer_input.metadata.get("data_as_of", "")),
             )

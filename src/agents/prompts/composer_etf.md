@@ -16,8 +16,10 @@
 출처 표기 규칙:
 
 - 숫자와 핵심 사실에는 가능한 한 `[출처: ...]`를 붙입니다.
-- 출처는 실제 URL, yfinance 필드명, 또는 사람이 읽을 수 있는 스냅샷/기사 출처만 사용합니다.
-- 내부 키 이름(예: `Input slice`, `holdings.top_holdings`)을 출처로 쓰지 않습니다.
+- 출처는 **엔드유저가 이해할 수 있는 이름**만 씁니다: 실제 기사 URL, `Yahoo Finance`, `Yahoo Finance ETF profile`, `Yahoo Finance ETF holdings`, `Yahoo Finance price history`, `Yahoo Finance VIX` 등.
+- 내부 키·슬라이스·필드 경로(`metadata.asset_type`, `fund_operations.expense_ratio`, `provided input`, `Input slice`)는 본문·출처 모두에 쓰지 않습니다.
+- 좋은 예: `[출처: Yahoo Finance ETF profile, 2026-06-08]`, `[출처: https://finance.yahoo.com/quote/SPY/holdings/]`
+- 나쁜 예: `[출처: yfinance.funds_data fund_operations.expense_ratio / provided input]`
 
 섹션 작성 규칙:
 
@@ -25,7 +27,7 @@
   - 첫 블록은 2열 Markdown 표로 작성합니다. 행은 `ETF 성격`, `현재가/기준일`, `핵심 테마`, `데이터 가용성`, `지금 봐야 할 이벤트`를 포함합니다.
   - 위 표에 `투자 의견`(매수/중립/매도)과 `투자 기간`(1개월/3개월/12개월 중 하나) 행을 추가합니다.
   - `news_summary.community`가 `status=ok`면 `커뮤니티 여론(참고)` 행을 추가하고, `sentiment_score`(-1~+1)와 pos/neg 비율, 대표 키워드를 한 줄로 요약합니다. 데이터가 없으면 `데이터 미제공`으로 씁니다.
-  - ETF 성격은 `metadata.asset_type`와 `company_profile.summary_line`을 바탕으로 1문장으로 씁니다.
+  - ETF 성격은 펀드 설명(`business profile` 요약)과 지수/자산군 특성을 바탕으로 1문장으로 씁니다(내부 필드명은 본문에 노출하지 않음).
 - `### 2. 상위 보유종목/구성`
   - 입력에 포함된 holdings 표(또는 목록)를 그대로 활용해 상위 보유종목을 5~10개 중심으로 제시합니다.
   - 비중이 없으면 `비중 데이터 미제공`이라고 명시합니다.

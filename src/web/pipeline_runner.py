@@ -113,9 +113,11 @@ def load_existing_run(ticker: str, date: str) -> dict[str, Any] | None:
     if not context and not report_md:
         return None
 
+    meta = (context or {}).get("metadata") or {}
     overview = {
-        "company_name": (context or {}).get("metadata", {}).get("company_name", sym),
-        "sector": (context or {}).get("metadata", {}).get("sector"),
+        "company_name": meta.get("company_name", sym),
+        "sector": meta.get("sector"),
+        "asset_type": meta.get("asset_type"),
         "current_price": (snapshot or {}).get("price", {}).get("current")
         or (context or {}).get("price_summary", {}).get("current_price"),
         "signal": (signal or {}).get("signal"),
@@ -137,6 +139,7 @@ def load_existing_run(ticker: str, date: str) -> dict[str, Any] | None:
             "fetched_at": (snapshot or {}).get("fetched_at"),
             "price": (snapshot or {}).get("price"),
             "info": (snapshot or {}).get("info"),
+            "fund": (snapshot or {}).get("fund"),
             "news_count": len((snapshot or {}).get("news") or []),
         },
         "news_enrichment": news_enrichment or {},

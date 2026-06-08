@@ -404,6 +404,7 @@ def run_single_pipeline(
         "overview": {
             "company_name": context.get("metadata", {}).get("company_name", ticker),
             "sector": context.get("metadata", {}).get("sector"),
+            "asset_type": context.get("metadata", {}).get("asset_type"),
             "current_price": snapshot["price"]["current"],
             "signal": tsig.signal,
             "confidence": tsig.confidence,

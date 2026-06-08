@@ -11,9 +11,9 @@ if str(SRC) not in sys.path:
 
 from agents.composer_agent import (  # noqa: E402
     _build_input,
-    _polish_report_markdown,
     _render_quarterly_table,
 )
+from agents.source_citations import polish_stock_report_markdown  # noqa: E402
 from agents.schemas import (  # noqa: E402
     ComposerInput,
     FinancialsHealthOutput,
@@ -157,11 +157,11 @@ class ComposerAgentFormattingTests(unittest.TestCase):
             "- 목표가 [출처: AAPL valuation: trailing PER 35]"
         )
 
-        polished = _polish_report_markdown(report, data_as_of="2026-05-11T00:00:00Z")
+        polished = polish_stock_report_markdown(report, data_as_of="2026-05-11T00:00:00Z")
 
         self.assertIn("산식: 목표가 = EPS × PER", polished)
-        self.assertIn("yfinance analyst view fields, 2026-05-11T00:00:00Z", polished)
-        self.assertIn("yfinance valuation fields, 2026-05-11T00:00:00Z", polished)
+        self.assertIn("Yahoo Finance analyst consensus, 2026-05-11T00:00:00Z", polished)
+        self.assertIn("Yahoo Finance valuation, 2026-05-11T00:00:00Z", polished)
         self.assertNotIn("formula_text", polished)
         self.assertNotIn("입력:", polished)
 

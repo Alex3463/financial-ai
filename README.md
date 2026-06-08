@@ -12,7 +12,7 @@
 |---|---|
 | **무엇을 하나** | Yahoo Finance 수집 → 뉴스 심층 읽기 → **FinBERT 감성** → **LLM 다중 에이전트** 리포트 → 규칙·Judge 평가 → 매매 신호 스텁 |
 | **CLI 진입점** | `scripts/run_pipeline.py` — 콘솔 `[pipeline] 1/5~5/5` |
-| **웹 데모** | `scripts/run_dashboard.py` — 5탭 UI(종토방 포함), 차트, 공개 URL·캐시·API 토큰 |
+| **웹 데모** | `scripts/run_dashboard.py` — 5탭 UI(종토방 포함), 주식·**ETF(SPY)** 전용 레이아웃, 공개 URL·캐시·API 토큰 |
 | **저장소** | [github.com/Alex3463/financial-ai](https://github.com/Alex3463/financial-ai) |
 | **기술 스택** | Python 3.12 · uv · yfinance · FinBERT · OpenAI Agents · Playwright MCP · FastAPI |
 

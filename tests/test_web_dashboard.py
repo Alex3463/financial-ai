@@ -41,6 +41,18 @@ def test_community_endpoint() -> None:
         assert "raw" in data["community"] or data["community"] == {}
 
 
+def test_spy_etf_run_payload() -> None:
+    client = TestClient(app)
+    res = client.get("/api/runs/SPY/2026-06-08")
+    if res.status_code != 200:
+        return
+    data = res.json()
+    assert data.get("context", {}).get("metadata", {}).get("asset_type") == "ETF"
+    fund = data.get("context", {}).get("fund_profile") or {}
+    assert fund.get("top_holdings")
+    assert "ETF 분석 리포트" in (data.get("report_md") or "")
+
+
 def test_visitors_endpoint() -> None:
     client = TestClient(app)
     client.get("/api/health")

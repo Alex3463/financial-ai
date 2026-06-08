@@ -103,7 +103,339 @@ function renderSectionCard(section) {
   </article>`;
 }
 
+function formatInlineMd(text) {
+  const safe = esc(text || "");
+  return safe.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+}
+
+function isConclusionBullet(text) {
+  return /^(요약\s*결론|결론)/.test((text || "").trim());
+}
+
+function renderEtfBulletList(bullets, extraClass = "") {
+  if (!bullets?.length) return "";
+  const items = bullets
+    .map((b) => {
+      const cls = isConclusionBullet(b) ? " etf-conclusion-item" : "";
+      return `<li class="${extraClass}${cls}">${formatInlineMd(b)}</li>`;
+    })
+    .join("");
+  return `<ul class="clean-list etf-bullets">${items}</ul>`;
+}
+
+function renderEtfProseBlocks(prose) {
+  if (!prose?.length) return "";
+  return prose
+    .map((p) => {
+      if (p.kind === "heading") {
+        return `<h4 class="etf-subheading">${esc(p.text)}</h4>`;
+      }
+      return `<p class="etf-prose">${formatInlineMd(p.text)}</p>`;
+    })
+    .join("");
+}
+
+function renderEtfMdTable(table, className = "") {
+  if (!table?.headers?.length) return "";
+  const { headers, rows } = table;
+  const tickerIdx = headers.findIndex((h) => /티커/.test(h));
+  const weightIdx = headers.findIndex((h) => /비중/.test(h));
+  const rankIdx = headers.findIndex((h) => /순위|#/.test(h));
+  const thead = `<thead><tr>${headers.map((h) => `<th>${esc(h)}</th>`).join("")}</tr></thead>`;
+  const tbody = `<tbody>${rows
+    .map((row) => {
+      const cells = row
+        .map((cell, i) => {
+          let cls = "";
+          if (i === rankIdx || i === weightIdx) cls = "num";
+          if (i === tickerIdx) cls = (cls ? cls + " " : "") + "ticker";
+          return `<td class="${cls}">${formatInlineMd(cell)}</td>`;
+        })
+        .join("");
+      return `<tr>${cells}</tr>`;
+    })
+    .join("")}</tbody>`;
+  return `<div class="etf-table-wrap"><table class="etf-table ${className}">${thead}${tbody}</table></div>`;
+}
+
+function findHoldingsTable(section) {
+  return (section.tables || []).find(
+    (t) => t.headers.length >= 4 && t.headers.some((h) => /티커|비중/.test(h))
+  );
+}
+
+function findStrategyTable(section) {
+  return (section.tables || []).find(
+    (t) => t.headers.length >= 3 && t.headers.some((h) => /구분|실행/.test(h))
+  );
+}
+
+function renderEtfSummarySection(section, hero) {
+  const highlightKeys = ["투자 의견", "현재가", "투자 기간"];
+  const highlights = [];
+  const rest = [];
+  for (const r of section.rows || []) {
+    if (highlightKeys.some((k) => r.key.includes(k))) highlights.push(r);
+    else rest.push(r);
+  }
+  const pills = highlights
+    .map((r) => {
+      let val = r.value;
+      let pillClass = "";
+      if (/투자\s*의견/.test(r.key)) {
+        val = hero?.opinion || parseOpinion(r.value);
+        pillClass = ` opinion-${hero?.opinionClass || opinionClass(val)}`;
+      }
+      return `<div class="etf-kv-card highlight${pillClass}"><span class="etf-kv-label">${esc(r.key)}</span><strong>${esc(val)}</strong></div>`;
+    })
+    .join("");
+  const kvRest = rest.length
+    ? `<dl class="kv-list etf-kv-rest">${rest
+        .map((r) => `<div class="kv-row"><dt>${esc(r.key)}</dt><dd>${formatInlineMd(r.value)}</dd></div>`)
+        .join("")}</dl>`
+    : "";
+  const bullets = section.bullets || [];
+  const conclusions = bullets.filter(isConclusionBullet);
+  const otherBullets = bullets.filter((b) => !isConclusionBullet(b));
+  return `
+    ${pills ? `<div class="etf-kv-grid">${pills}</div>` : ""}
+    ${kvRest}
+    ${otherBullets.length ? renderEtfBulletList(otherBullets) : ""}
+    ${conclusions.length ? `<div class="etf-conclusion">${renderEtfBulletList(conclusions)}</div>` : ""}`;
+}
+
+function renderEtfHoldingsSection(section) {
+  const table = findHoldingsTable(section);
+  const tableHtml = table ? renderEtfMdTable(table, "etf-holdings-table") : "";
+  const bullets = section.bullets || [];
+  const concentration = bullets.find((b) => /집중도|편중/.test(b));
+  const rest = bullets.filter((b) => b !== concentration);
+  const concentrationHtml = concentration
+    ? `<div class="etf-callout etf-callout-warn"><span class="etf-callout-label">집중도</span><p>${formatInlineMd(concentration)}</p></div>`
+    : "";
+  return `
+    ${renderEtfProseBlocks((section.prose || []).filter((p) => p.kind === "paragraph"))}
+    ${tableHtml}
+    ${concentrationHtml}
+    ${rest.length ? renderEtfBulletList(rest) : ""}`;
+}
+
+function renderEtfOperationsSection(section) {
+  const prose = section.prose || [];
+  const intro = prose.filter((p) => p.kind === "paragraph");
+  const headings = prose.filter((p) => p.kind === "heading");
+  const bullets = section.bullets || [];
+  let bulletHtml = "";
+  if (headings.length && bullets.length) {
+    const splitAt = bullets.findIndex((b) => /패시브|낮은\s*보수|주식\s*비중/.test(b));
+    const first = splitAt > 0 ? bullets.slice(0, splitAt) : bullets.slice(0, Math.ceil(bullets.length / 2));
+    const second = splitAt > 0 ? bullets.slice(splitAt) : bullets.slice(first.length);
+    bulletHtml = `
+      ${first.length ? renderEtfBulletList(first) : ""}
+      ${headings.map((h) => `<h4 class="etf-subheading">${esc(h.text)}</h4>`).join("")}
+      ${second.length ? renderEtfBulletList(second) : ""}`;
+  } else {
+    bulletHtml = renderEtfBulletList(bullets);
+  }
+  return `${renderEtfProseBlocks(intro)}${bulletHtml}`;
+}
+
+function renderEtfMomentumSection(section) {
+  const prose = section.prose || [];
+  const headings = prose.filter((p) => p.kind === "heading");
+  const introParas = prose.filter((p) => p.kind === "paragraph");
+  const bullets = section.bullets || [];
+  const newsIdx = bullets.findIndex((b) => /보도|기사|뉴스/.test(b));
+  const techBullets = newsIdx >= 0 ? bullets.slice(0, newsIdx) : bullets;
+  const newsBullets = newsIdx >= 0 ? bullets.slice(newsIdx) : [];
+  const subsections = (section.subsections || [])
+    .map(
+      (sub) =>
+        `<div class="etf-subsection">
+          <h4 class="etf-subheading">${esc(sub.title)}</h4>
+          ${renderEtfProseBlocks(sub.prose)}
+          ${renderEtfBulletList(sub.bullets)}
+        </div>`
+    )
+    .join("");
+  return `
+    ${renderEtfProseBlocks(introParas)}
+    ${renderEtfBulletList(techBullets)}
+    ${headings.map((h) => `<h4 class="etf-subheading">${esc(h.text)}</h4>`).join("")}
+    ${renderEtfBulletList(newsBullets)}
+    ${subsections}`;
+}
+
+function renderEtfStrategySection(section) {
+  const table = findStrategyTable(section);
+  const bullets = section.bullets || [];
+  const conclusions = bullets.filter(isConclusionBullet);
+  const rest = bullets.filter((b) => !isConclusionBullet(b));
+  return `
+    ${table ? renderEtfMdTable(table, "etf-strategy-table") : ""}
+    ${rest.length ? renderEtfBulletList(rest) : ""}
+    ${conclusions.length ? `<div class="etf-conclusion">${renderEtfBulletList(conclusions)}</div>` : ""}`;
+}
+
+function renderEtfReportSection(section, hero) {
+  const kind = etfSectionKind(section.title);
+  const num = etfSectionNumber(section.title);
+  let body = "";
+  switch (kind) {
+    case "summary":
+      body = renderEtfSummarySection(section, hero);
+      break;
+    case "holdings":
+      body = renderEtfHoldingsSection(section);
+      break;
+    case "operations":
+      body = renderEtfOperationsSection(section);
+      break;
+    case "risk":
+      body = `<div class="etf-risk-block">${renderEtfBulletList(section.bullets || [])}</div>`;
+      break;
+    case "momentum":
+      body = renderEtfMomentumSection(section);
+      break;
+    case "strategy":
+      body = renderEtfStrategySection(section);
+      break;
+    default:
+      body = renderSectionCard(section) || `<p class="muted-inline">내용 없음</p>`;
+  }
+  const riskClass = kind === "risk" ? " etf-section-risk" : "";
+  return `<article class="etf-section etf-section-${kind}${riskClass}">
+    <header class="etf-section-head">
+      ${num ? `<span class="etf-section-num">${esc(num)}</span>` : ""}
+      <h3 class="etf-section-title">${esc(section.title.replace(/^\d+\.\s*/, ""))}</h3>
+    </header>
+    <div class="etf-section-body">${body}</div>
+  </article>`;
+}
+
+function renderEtfReport(data) {
+  const md = data.report_md || "";
+  const hero = parseHero(md, data);
+  const el = $("#panel-report");
+  const sections = hero.sections || [];
+  const o = data.overview || {};
+  const docTitle = parseReportTitle(md) || `${data.ticker} ETF 분석 리포트`;
+  const headerPills = [
+    hero.opinion ? { label: "투자 의견", value: hero.opinion, cls: `opinion-${hero.opinionClass}` } : null,
+    hero.horizon ? { label: "투자 기간", value: hero.horizon } : null,
+    hero.expenseRatio ? { label: "보수", value: hero.expenseRatio } : null,
+    hero.aum ? { label: "AUM", value: hero.aum } : null,
+  ].filter(Boolean);
+
+  const cards = sections.map((s) => renderEtfReportSection(s, hero)).join("");
+  el.innerHTML = cards
+    ? `<div class="etf-report">
+        <header class="etf-report-header">
+          <h2 class="etf-report-title">${esc(docTitle)}</h2>
+          <p class="etf-report-banner">${esc(data.ticker)} · ${esc(o.company_name || data.ticker)} <span class="badge etf-badge">ETF</span> · ${esc(data.date)}</p>
+          ${headerPills.length ? `<div class="etf-report-pills">${headerPills.map((p) => `<div class="etf-pill ${p.cls || ""}"><span>${esc(p.label)}</span><strong>${esc(p.value)}</strong></div>`).join("")}</div>` : ""}
+        </header>
+        <div class="etf-section-stack">${cards}</div>
+      </div>`
+    : `<p class="muted-center">리포트 본문이 없습니다.</p>`;
+}
+
+function renderEtfSummary(data) {
+  const o = data.overview || {};
+  const hero = parseHero(data.report_md || "", data);
+  const el = $("#panel-summary");
+  const sentimentBanner = renderSummarySentimentBanner(data);
+  const comm = (data.community || {}).summary || {};
+  const boardHint =
+    comm.status === "ok" && comm.n
+      ? `<div class="highlight-box board-hint ${boardMoodClass(comm.sentiment_score)}">
+          <span class="highlight-label">종토방 여론 (Yahoo)</span>
+          <p>긍정 ${(comm.pos_ratio * 100).toFixed(0)}% · 부정 ${(comm.neg_ratio * 100).toFixed(0)}% · ${comm.n}건
+          <span class="muted-inline"> — <a href="#" class="tab-link" data-tab="board">종토방 탭</a></span></p>
+        </div>`
+      : "";
+
+  const metrics = [
+    { label: "현재가", value: hero.current },
+    { label: "보수(Expense)", value: hero.expenseRatio },
+    { label: "회전율", value: hero.turnover },
+    { label: "총자산(AUM)", value: hero.aum },
+    { label: "투자 기간", value: hero.horizon },
+  ].filter((m) => m.value);
+
+  const holdingsChips = (hero.topHoldings || [])
+    .slice(0, 6)
+    .map(
+      (h) =>
+        `<span class="holding-chip" title="${esc(h.name || "")}"><strong>${esc(h.symbol)}</strong> ${formatPct(h.weight_pct, 1)}</span>`
+    )
+    .join("");
+
+  const sectorBars = (hero.sectors || [])
+    .slice(0, 5)
+    .map(
+      (s) =>
+        `<div class="sector-row"><span class="sector-label">${esc(s.label)}</span>
+         <div class="sector-bar"><span style="width:${Math.min(100, s.weight * 100).toFixed(1)}%"></span></div>
+         <span class="sector-pct">${formatPct(s.weight, 1)}</span></div>`
+    )
+    .join("");
+
+  const ac = hero.assetClasses || {};
+  const assetMix = [
+    ac.stockPosition != null ? `주식 ${formatPct(ac.stockPosition, 1)}` : null,
+    ac.bondPosition != null && ac.bondPosition > 0 ? `채권 ${formatPct(ac.bondPosition, 1)}` : null,
+    ac.cashPosition != null && ac.cashPosition > 0 ? `현금 ${formatPct(ac.cashPosition, 1)}` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  el.innerHTML = `
+    <div class="hero etf-hero">
+      <div class="hero-top">
+        <div>
+          <p class="hero-ticker">${esc(data.ticker)} · ${esc(o.company_name || data.ticker)} <span class="badge etf-badge">ETF</span></p>
+          <p class="hero-date">${esc(data.date)}${data.cached || data.cache_hit ? ' <span class="badge cached">캐시</span>' : ""}</p>
+        </div>
+        <div class="hero-opinion opinion-${hero.opinionClass}">${esc(hero.opinion)}</div>
+      </div>
+      <div class="hero-metrics">
+        ${metrics.map((m) => `<div class="metric"><span>${esc(m.label)}</span><strong>${esc(m.value)}</strong></div>`).join("")}
+      </div>
+      <div class="hero-footer">
+        <div>시스템 신호 ${signalBadge(hero.signal)}</div>
+        <div>신뢰도 ${hero.confidence != null ? (hero.confidence * 100).toFixed(0) + "%" : "—"}</div>
+        <div>품질 ${esc(hero.grade || "—")} · ${fmtNum(hero.score, 0)}점</div>
+      </div>
+    </div>
+
+    ${sentimentBanner}
+    ${boardHint}
+
+    ${hero.etfNature ? `<div class="highlight-box"><span class="highlight-label">ETF 성격</span><p>${esc(hero.etfNature)}</p></div>` : ""}
+    ${hero.theme ? `<div class="highlight-box"><span class="highlight-label">핵심 테마</span><p>${esc(hero.theme)}</p></div>` : ""}
+    ${hero.event ? `<div class="highlight-box warn"><span class="highlight-label">지금 봐야 할 이벤트</span><p>${esc(hero.event)}</p></div>` : ""}
+
+    ${holdingsChips ? `<section class="block etf-block"><h3>상위 보유종목</h3><div class="holding-chips">${holdingsChips}</div></section>` : ""}
+    ${sectorBars ? `<section class="block etf-block"><h3>섹터 비중 Top 5</h3><div class="sector-list">${sectorBars}</div></section>` : ""}
+    ${assetMix ? `<p class="muted-inline etf-asset-mix">자산군: ${esc(assetMix)}</p>` : ""}
+
+    ${hero.riskBullets.length ? `<section class="block risk"><h3>리스크 (괴리·유동성·집중도)</h3><ul class="clean-list">${hero.riskBullets.slice(0, 4).map((t) => `<li>${esc(t)}</li>`).join("")}</ul></section>` : ""}
+    ${hero.strategyBullets.length ? `<section class="block"><h3>투자 전략 힌트</h3><ul class="clean-list">${hero.strategyBullets.map((t) => `<li>${esc(t)}</li>`).join("")}</ul></section>` : ""}
+  `;
+  el.querySelectorAll(".tab-link").forEach((a) => {
+    a.addEventListener("click", (e) => {
+      e.preventDefault();
+      switchTab(a.dataset.tab);
+    });
+  });
+}
+
 function renderSummary(data) {
+  if (isEtfReport(data)) {
+    renderEtfSummary(data);
+    return;
+  }
   const o = data.overview || {};
   const hero = parseHero(data.report_md || "", data);
   const el = $("#panel-summary");
@@ -165,6 +497,10 @@ function renderSummary(data) {
 }
 
 function renderReport(data) {
+  if (isEtfReport(data)) {
+    renderEtfReport(data);
+    return;
+  }
   const hero = parseHero(data.report_md || "", data);
   const el = $("#panel-report");
   const cards = (hero.sections || []).map(renderSectionCard).filter(Boolean).join("");
@@ -496,7 +832,120 @@ function renderDetailsAccordion(title, contentHtml, open = false) {
   </details>`;
 }
 
+function renderEtfHoldingsTable(holdings) {
+  if (!holdings?.length) return "<p>—</p>";
+  const rows = holdings
+    .map(
+      (h, i) =>
+        `<tr><td>${i + 1}</td><td>${esc(h.symbol)}</td><td>${esc(h.name || "—")}</td><td class="num">${formatPct(h.weight_pct, 2)}</td></tr>`
+    )
+    .join("");
+  return `<table class="etf-table"><thead><tr><th>#</th><th>티커</th><th>종목</th><th>비중</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+function renderEtfSectorTable(sectors) {
+  if (!sectors?.length) return "<p>—</p>";
+  const rows = sectors
+    .map(
+      (s) =>
+        `<tr><td>${esc(s.label)}</td><td class="num">${formatPct(s.weight, 2)}</td></tr>`
+    )
+    .join("");
+  return `<table class="etf-table"><thead><tr><th>섹터</th><th>비중</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+function renderEtfDetails(data) {
+  const s = data.snapshot_summary || {};
+  const price = s.price || {};
+  const ctx = data.context || {};
+  const ev = data.eval || {};
+  const sig = data.signal || {};
+  const hero = parseHero(data.report_md || "", data);
+  const fund = fundProfileFromData(data);
+  const ops = fund.fund_operations || {};
+  const bd = ev.breakdown || {};
+  const scoreItems = Object.entries(bd)
+    .map(([k, v]) => `<div class="score-item"><span>${esc(k)}</span><strong>${v}</strong></div>`)
+    .join("");
+
+  const hasChart = price.daily_close && Object.keys(price.daily_close).length > 1;
+  const rangeBtns = [3, 6, 12]
+    .map(
+      (m) =>
+        `<button type="button" class="range-btn${chartRangeMonths === m ? " active" : ""}" data-months="${m}">${m}M</button>`
+    )
+    .join("");
+
+  const el = $("#panel-details");
+  el.innerHTML = `
+    ${
+      hasChart
+        ? `<section class="chart-panel">
+      <div class="chart-header">
+        <div>
+          <h3 class="chart-title">${esc(data.ticker)} ETF 가격</h3>
+          <p class="chart-sub" id="chart-stats">—</p>
+        </div>
+        <div class="range-group">${rangeBtns}</div>
+      </div>
+      <div id="price-chart" class="price-chart"></div>
+      <div id="chart-legend" class="chart-legend"></div>
+      <p class="chart-note">일봉 캔들 · ETF는 목표가 참고선 대신 52주 고저·기술적 레벨 중심</p>
+    </section>`
+        : `<p class="muted-center">차트용 일봉 데이터가 없습니다.</p>`
+    }
+    ${renderDetailsAccordion(
+      "운용 구조·비용",
+      `<div class="mini-cards etf-ops">
+        <div><span>Expense Ratio</span><strong>${esc(hero.expenseRatio || "—")}</strong></div>
+        <div><span>Holdings Turnover</span><strong>${esc(hero.turnover || "—")}</strong></div>
+        <div><span>Total Net Assets</span><strong>${esc(hero.aum || "—")}</strong></div>
+        <div><span>카테고리</span><strong>${esc(fund.fund_overview?.categoryName || "—")}</strong></div>
+      </div>`
+    )}
+    ${renderDetailsAccordion("상위 보유종목", renderEtfHoldingsTable(hero.topHoldings), true)}
+    ${renderDetailsAccordion("섹터 비중", renderEtfSectorTable(hero.sectors))}
+    ${renderDetailsAccordion(
+      "시장·모멘텀",
+      `<div class="mini-cards">
+        <div><span>52주</span><strong>${fmtNum(s.price?.["52w_low"])} – ${fmtNum(s.price?.["52w_high"])}</strong></div>
+        <div><span>RSI(14)</span><strong>${fmtNum(ctx.price_technicals?.rsi_14, 1)}</strong></div>
+        <div><span>VIX</span><strong>${fmtNum(ctx.market_context?.vix?.current, 1)} (${esc(ctx.market_context?.vix?.regime || "—")})</strong></div>
+        <div><span>12M 수익률</span><strong>${ctx.price_summary?.returns?.return_12m != null ? ctx.price_summary.returns.return_12m + "%" : "—"}</strong></div>
+      </div>`
+    )}
+    ${renderDetailsAccordion(
+      "평가 점수 (ETF 루브릭)",
+      `<div class="score-grid">${scoreItems || "<p>—</p>"}</div>
+       <p class="grade-note">${esc(ev.grade_note || "")}</p>`
+    )}
+    ${renderDetailsAccordion("원본 JSON (fund_profile)", `<pre class="json-block">${esc(JSON.stringify(fund, null, 2))}</pre>`)}
+    ${renderDetailsAccordion("원본 JSON (signal)", `<pre class="json-block">${esc(JSON.stringify(sig, null, 2))}</pre>`)}
+  `;
+
+  _chartTicker = data.ticker;
+  _chartPrice = hasChart ? price : null;
+  _chartData = hasChart ? data : null;
+
+  if (hasChart) {
+    el.querySelectorAll(".range-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        chartRangeMonths = Number(btn.dataset.months);
+        el.querySelectorAll(".range-btn").forEach((b) => b.classList.toggle("active", b === btn));
+        mountPriceChart(_chartTicker, _chartPrice);
+      });
+    });
+    if ($("#panel-details")?.classList.contains("active")) {
+      requestAnimationFrame(() => mountPriceChart(_chartTicker, _chartPrice));
+    }
+  }
+}
+
 function renderDetails(data) {
+  if (isEtfReport(data)) {
+    renderEtfDetails(data);
+    return;
+  }
   const s = data.snapshot_summary || {};
   const price = s.price || {};
   const ctx = data.context || {};

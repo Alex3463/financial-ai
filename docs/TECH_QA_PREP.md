@@ -185,6 +185,10 @@ run_pipeline.run_single_pipeline()  ← CLI·웹 공통
 
 **A.** `eval/rules.py`의 `run_all_checks()`: 출처 표기율(`[출처:…]`), 과도한 확신 표현 감점, 리스크 키워드 커버리지, 목표가·PER 일치 등 **정규식·키워드** 기반. ETF는 별도 루브릭 variant.
 
+### Q26-1. ETF 리포트 출처에 `provided input`·`fund_operations`가 보이면?
+
+**A.** LLM이 컨텍스트 JSON 키를 그대로 인용하는 경우가 있습니다. `agents/source_citations.py`가 composer 출력 직후 `[출처: …]`와 본문 내부 필드명을 **Yahoo Finance / Yahoo Finance ETF profile** 등 엔드유저용 라벨로 정규화하고, `postcheck.py`는 `metadata.`, `provided input` 같은 내부 누출을 거부합니다. 웹 UI의 `stripCitations`는 표시 단계에서 `[출처:…]`를 추가로 숨깁니다.
+
 ### Q27. LLM Judge(M2)는 언제 돌아가나요?
 
 **A.** `config.yaml` `eval.use_llm_judge: true`이고 CLI에 `--no-judge`가 없을 때. `run_llm_judge()`가 6항목 서술 품질을 채점해 규칙 점수와 `aggregate()`로 합산합니다. API 실패 시 규칙만으로 fallback.

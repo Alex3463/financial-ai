@@ -7,19 +7,47 @@ function stripCitations(text) {
     .trim();
 }
 
-function extractTableRows(md) {
-  const rows = [];
+function parseTableCells(line) {
+  return line
+    .split("|")
+    .slice(1, -1)
+    .map((c) => stripCitations(c.replace(/`/g, "").replace(/\*\*/g, "").trim()));
+}
+
+function extractMarkdownTables(md) {
+  const tables = [];
   const lines = (md || "").split("\n");
-  for (const line of lines) {
-    if (!line.trim().startsWith("|")) continue;
-    if (/^\|[\s\-:|]+\|$/.test(line.trim())) continue;
-    const cells = line
-      .split("|")
-      .slice(1, -1)
-      .map((c) => stripCitations(c.replace(/\*\*/g, "").trim()));
-    if (cells.length >= 2 && cells.some(Boolean)) rows.push({ key: cells[0], value: cells.slice(1).join(" · ") });
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i].trim();
+    if (!line.startsWith("|")) {
+      i++;
+      continue;
+    }
+    const headers = parseTableCells(line);
+    i++;
+    if (i >= lines.length || !/^\|[\s\-:|]+\|$/.test(lines[i].trim())) continue;
+    i++;
+    const rows = [];
+    while (i < lines.length && lines[i].trim().startsWith("|")) {
+      if (/^\|[\s\-:|]+\|$/.test(lines[i].trim())) {
+        i++;
+        continue;
+      }
+      rows.push(parseTableCells(lines[i]));
+      i++;
+    }
+    if (headers.length >= 2 && rows.length) tables.push({ headers, rows });
   }
-  return rows;
+  return tables;
+}
+
+function extractTableRows(md) {
+  const kv = extractMarkdownTables(md).find((t) => t.headers.length === 2);
+  if (!kv) return [];
+  return kv.rows
+    .filter((cells) => cells.some(Boolean))
+    .map((cells) => ({ key: cells[0], value: cells[1] }));
 }
 
 function extractBullets(md) {
@@ -30,6 +58,60 @@ function extractBullets(md) {
     .filter(Boolean);
 }
 
+function proseBlockKind(text) {
+  const t = (text || "").trim();
+  if (!t) return "skip";
+  if (t.length < 90 && !/[.。\]%]$/.test(t)) return "heading";
+  return "paragraph";
+}
+
+function extractProseBlocks(md) {
+  const blocks = [];
+  const lines = (md || "").split("\n");
+  let buf = [];
+  const flush = () => {
+    if (!buf.length) return;
+    const text = stripCitations(buf.join(" ").trim());
+    buf = [];
+    const kind = proseBlockKind(text);
+    if (kind !== "skip") blocks.push({ kind, text });
+  };
+  for (const line of lines) {
+    const t = line.trim();
+    if (!t) {
+      flush();
+      continue;
+    }
+    if (t.startsWith("|") || /^[-*]\s+/.test(t) || t.startsWith("####")) {
+      flush();
+      continue;
+    }
+    buf.push(t);
+  }
+  flush();
+  return blocks;
+}
+
+function extractSubsections(md) {
+  const parts = (md || "").split(/^####\s+/m);
+  if (parts.length <= 1) return [];
+  return parts.slice(1).map((chunk) => {
+    const nl = chunk.indexOf("\n");
+    const title = nl === -1 ? chunk.trim() : chunk.slice(0, nl).trim();
+    const content = nl === -1 ? "" : chunk.slice(nl + 1).trim();
+    return {
+      title,
+      bullets: extractBullets(content),
+      prose: extractProseBlocks(content),
+    };
+  });
+}
+
+function parseReportTitle(md) {
+  const m = (md || "").match(/^#\s+(.+)$/m);
+  return m ? stripCitations(m[1].trim()) : "";
+}
+
 function parseReportSections(md) {
   if (!md) return [];
   const body = md.replace(/^#\s+.+\n+/m, "");
@@ -38,13 +120,33 @@ function parseReportSections(md) {
     const nl = chunk.indexOf("\n");
     const title = nl === -1 ? chunk.trim() : chunk.slice(0, nl).trim();
     const content = nl === -1 ? "" : chunk.slice(nl + 1).trim();
+    const main = content.split(/^####\s+/m)[0].trim();
     return {
       title,
-      rows: extractTableRows(content),
-      bullets: extractBullets(content),
+      rows: extractTableRows(main),
+      tables: extractMarkdownTables(content),
+      bullets: extractBullets(main),
+      subsections: extractSubsections(content),
+      prose: extractProseBlocks(main),
       raw: content,
     };
   });
+}
+
+function etfSectionKind(title) {
+  const t = title || "";
+  if (/요약/.test(t)) return "summary";
+  if (/보유|구성/.test(t)) return "holdings";
+  if (/운용|비용/.test(t)) return "operations";
+  if (/리스크/.test(t)) return "risk";
+  if (/모멘텀|시장/.test(t)) return "momentum";
+  if (/전략/.test(t)) return "strategy";
+  return "generic";
+}
+
+function etfSectionNumber(title) {
+  const m = (title || "").match(/^(\d+)\./);
+  return m ? m[1] : null;
 }
 
 function pickRow(rows, ...keys) {
@@ -70,6 +172,7 @@ function parsePriceNumber(text) {
 function extractChartLevels(data) {
   const levels = [];
   const seen = new Set();
+  const etf = isEtfReport(data);
 
   const add = (price, label, color, lineStyle = 2) => {
     const p = parsePriceNumber(price);
@@ -89,10 +192,12 @@ function extractChartLevels(data) {
   const sections = parseReportSections(data?.report_md || "");
   const allRows = sections.flatMap((s) => s.rows);
 
-  add(pickRow(allRows, "LLM 산정 목표가"), "LLM 목표가", "#60a5fa", 0);
-  add(pickRow(allRows, "목표가"), "리포트 목표가", "#3b82f6", 0);
-  add(pickRow(allRows, "손절가"), "손절가", "#ef4444", 2);
-  add(pickRow(allRows, "컨센서스 평균 목표가", "컨센서스 평균"), "애널리스트 평균", "#c084fc", 2);
+  if (!etf) {
+    add(pickRow(allRows, "LLM 산정 목표가"), "LLM 목표가", "#60a5fa", 0);
+    add(pickRow(allRows, "목표가"), "리포트 목표가", "#3b82f6", 0);
+    add(pickRow(allRows, "손절가"), "손절가", "#ef4444", 2);
+    add(pickRow(allRows, "컨센서스 평균 목표가", "컨센서스 평균"), "애널리스트 평균", "#c084fc", 2);
+  }
 
   const rangeText = pickRow(allRows, "컨센서스 목표가 범위");
   if (rangeText) {
@@ -128,7 +233,108 @@ function opinionClass(opinion) {
   return "hold";
 }
 
+const ETF_ASSET_TYPES = new Set(["ETF", "FUND", "MUTUALFUND", "ETN"]);
+
+function isEtfReport(data) {
+  const at = String(data?.context?.metadata?.asset_type || data?.overview?.asset_type || "")
+    .trim()
+    .toUpperCase();
+  if (ETF_ASSET_TYPES.has(at)) return true;
+  const md = data?.report_md || "";
+  return /ETF\s*분석\s*리포트/i.test(md);
+}
+
+function fundProfileFromData(data) {
+  return data?.context?.fund_profile || data?.snapshot_summary?.fund || {};
+}
+
+function formatPct(value, digits = 2) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "—";
+  const pct = n <= 1 && n > 0 ? n * 100 : n;
+  return `${pct.toFixed(digits)}%`;
+}
+
+function formatAum(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "—";
+  if (n >= 1e9) return `${(n / 1e9).toFixed(1)}B`;
+  if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`;
+  return fmtNum(n, 0);
+}
+
+const SECTOR_LABELS = {
+  technology: "기술",
+  financial_services: "금융",
+  communication_services: "통신",
+  healthcare: "헬스케어",
+  consumer_cyclical: "경기소비재",
+  consumer_defensive: "필수소비재",
+  industrials: "산업",
+  energy: "에너지",
+  utilities: "유틸리티",
+  basic_materials: "소재",
+  realestate: "부동산",
+};
+
+function sectorEntries(sectorWeightings) {
+  if (!sectorWeightings || typeof sectorWeightings !== "object") return [];
+  return Object.entries(sectorWeightings)
+    .map(([k, v]) => ({
+      key: k,
+      label: SECTOR_LABELS[k] || k.replace(/_/g, " "),
+      weight: Number(v),
+    }))
+    .filter((e) => Number.isFinite(e.weight) && e.weight > 0)
+    .sort((a, b) => b.weight - a.weight);
+}
+
+function parseEtfHero(reportMd, data) {
+  const sections = parseReportSections(reportMd);
+  const summary = sections.find((s) => /ETF\s*요약|요약/.test(s.title)) || sections[0];
+  const strategy = sections.find((s) => /투자\s*전략/.test(s.title));
+  const riskSec = sections.find((s) => /리스크/.test(s.title));
+  const rows = summary?.rows || [];
+  const o = data.overview || {};
+  const sig = data.signal || {};
+  const ev = data.eval || {};
+  const fund = fundProfileFromData(data);
+  const ops = fund.fund_operations || {};
+
+  const opinionRaw = pickRow(rows, "투자 의견") || sig.signal || "—";
+  const opinion = parseOpinion(String(opinionRaw).replace(/\(조건부\)/g, "").trim());
+
+  return {
+    isEtf: true,
+    opinion,
+    opinionClass: opinionClass(opinion),
+    etfNature: pickRow(rows, "ETF 성격"),
+    theme: pickRow(rows, "핵심 테마"),
+    current: pickRow(rows, "현재가") || (o.current_price != null ? `${fmtNum(o.current_price)}` : null),
+    horizon: pickRow(rows, "투자 기간") || sig.time_horizon,
+    dataAvailability: pickRow(rows, "데이터 가용성"),
+    event: pickRow(rows, "지금 봐야"),
+    community: pickRow(rows, "커뮤니티"),
+    expenseRatio: ops.expense_ratio != null ? formatPct(ops.expense_ratio, 3) : null,
+    turnover: ops.holdings_turnover != null ? formatPct(ops.holdings_turnover, 2) : null,
+    aum: ops.total_net_assets != null ? formatAum(ops.total_net_assets) : null,
+    topHoldings: (fund.top_holdings || []).slice(0, 10),
+    sectors: sectorEntries(fund.sector_weightings).slice(0, 8),
+    assetClasses: fund.asset_classes || {},
+    grade: ev.grade || o.grade,
+    score: ev.score_normalized_100 ?? o.score_normalized_100,
+    confidence: sig.confidence ?? o.confidence,
+    signal: sig.signal,
+    sections,
+    strategyBullets: (strategy?.bullets || []).slice(0, 4),
+    riskBullets: (riskSec?.bullets || []).slice(0, 5),
+    thesis: sig.thesis_bullets || [],
+    risks: sig.risk_triggers || [],
+  };
+}
+
 function parseHero(reportMd, data) {
+  if (isEtfReport(data)) return parseEtfHero(reportMd, data);
   const sections = parseReportSections(reportMd);
   const summary = sections.find((s) => /투자 요약|요약/.test(s.title)) || sections[0];
   const conclusion = sections.find((s) => /결론/.test(s.title));
