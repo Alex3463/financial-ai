@@ -30,6 +30,7 @@ from eval.rules import run_all_checks
 from features.builder import FeatureBuilder
 from ingest.yahoo import YahooIngester
 from news.enrichment import enrich_news
+from fio.asset_class import classify_snapshot, is_etf_like, pipeline_branch_label
 from fio.storage import append_prediction_row, write_json
 from report.composer import ContextBuilder, compose_markdown_report, today_str
 from report.llm import LLMProvider, write_gateway_models_log
@@ -105,8 +106,34 @@ def _community_payload_for_result(
     return {"raw": raw, "summary": summary}
 
 
-def _stub_report(ticker: str, context: dict) -> str:
-    """로컬 검증용 최소 Markdown (섹션·키워드 포함)."""
+def _format_weight_pct(value: Any) -> str:
+    try:
+        n = float(value)
+    except (TypeError, ValueError):
+        return "데이터 미제공"
+    pct = n * 100 if 0 < n <= 1 else n
+    return f"{pct:.2f}%"
+
+
+def _stub_holdings_table(context: dict) -> str:
+    holdings = list((context.get("fund_profile") or {}).get("top_holdings") or [])[:10]
+    lines = [
+        "| 순위 | 종목 | 티커 | 비중 | 비고 |",
+        "|---:|---|---|---:|---|",
+    ]
+    if not holdings:
+        lines.append("| 1 | 데이터 미제공 | N/A | 데이터 미제공 | 보유종목 스텁 |")
+        return "\n".join(lines)
+    for i, h in enumerate(holdings, start=1):
+        lines.append(
+            f"| {i} | {h.get('name') or 'N/A'} | {h.get('symbol') or 'N/A'} | "
+            f"{_format_weight_pct(h.get('weight_pct'))} |  |"
+        )
+    return "\n".join(lines)
+
+
+def _stub_equity_report(ticker: str, context: dict) -> str:
+    """로컬 검증용 주식 스텁 Markdown."""
     meta = context.get("metadata", {})
     name = meta.get("company_name", ticker)
     per = context.get("valuation", {}).get("PER", "N/A")
@@ -127,6 +154,7 @@ def _stub_report(ticker: str, context: dict) -> str:
         if vix.get("current") is not None
         else "VIX 데이터 미제공"
     )
+    as_of = meta.get("data_as_of", "")
     return f"""# {ticker} ({name}) 투자 분석 리포트
 
 ### 1. 투자 요약
@@ -142,7 +170,7 @@ def _stub_report(ticker: str, context: dict) -> str:
 | 지금 봐야 할 이벤트 | 다음 실적 발표 |
 
 ### 2. 재무 현황
-- trailing PER 약 {per} [출처: yf.info.trailingPE, {meta.get("data_as_of", "")}]
+- trailing PER 약 {per} [출처: Yahoo Finance, {as_of}]
 
 ### 3. 성장 동력
 - 서비스 매출 성장
@@ -156,11 +184,96 @@ def _stub_report(ticker: str, context: dict) -> str:
 
 ### 5. 밸류에이션
 - PER 배수 적용: 목표가 = 현재가 {float(current_price):.2f} × 1.05 = {float(target_price):.2f} [출처: 단순 스텁 가정]
-- 현재가 {float(current_price):.2f}, 목표가 {float(target_price):.2f}, 손절가 {float(stop_loss):.2f}, VIX {vix.get("current", "데이터 미제공")} [출처: yf.history.Close, {meta.get("market_reference_date", "")}]
+- 현재가 {float(current_price):.2f}, 목표가 {float(target_price):.2f}, 손절가 {float(stop_loss):.2f}, VIX {vix.get("current", "데이터 미제공")} [출처: Yahoo Finance price history, {meta.get("market_reference_date", "")}]
 
 ### 6. 투자 결론
 - 현재가 {float(current_price):.2f}, 목표가 {float(target_price):.2f}, 손절가 {float(stop_loss):.2f}. 12개월 관점 중립. 멀티플 수축 또는 VIX 상승 시 하방 위험.
 """
+
+
+def _stub_etf_report(ticker: str, context: dict) -> str:
+    """로컬 검증용 ETF 스텁 Markdown (6섹션 ETF 계약)."""
+    meta = context.get("metadata", {})
+    name = meta.get("company_name", ticker)
+    fund = context.get("fund_profile") or {}
+    ops = fund.get("fund_operations") or {}
+    price_summary = context.get("price_summary", {})
+    technicals = context.get("price_technicals", {})
+    market_context = context.get("market_context", {})
+    vix = market_context.get("vix", {}) if isinstance(market_context, dict) else {}
+    current_price = price_summary.get("current_price") or 100
+    expense = ops.get("expense_ratio")
+    turnover = ops.get("holdings_turnover")
+    aum = ops.get("total_net_assets")
+    expense_text = (
+        f"{float(expense) * 100:.3f}%" if expense not in (None, "") else "데이터 미제공"
+    )
+    turnover_text = (
+        f"{float(turnover) * 100:.2f}%" if turnover not in (None, "") else "데이터 미제공"
+    )
+    aum_text = f"{aum}" if aum not in (None, "") else "데이터 미제공"
+    vix_text = (
+        f"VIX {vix.get('current')}, {vix.get('regime')}"
+        if vix.get("current") is not None
+        else "VIX 데이터 미제공"
+    )
+    rsi = technicals.get("rsi_14", "데이터 미제공")
+    as_of = meta.get("market_reference_date", "")
+    holdings_table = _stub_holdings_table(context)
+    return f"""# {ticker} ({name}) ETF 분석 리포트
+
+### 1. ETF 요약
+| 항목 | 내용 |
+|---|---|
+| ETF 성격 | {meta.get("asset_type", "ETF")} — 커버드콜·인컴·지수추종 등 펀드 성격은 스텁 요약 [출처: Yahoo Finance ETF profile] |
+| 현재가/기준일 | {float(current_price):.2f} / {as_of} [출처: Yahoo Finance price history] |
+| 핵심 테마 | 분산·비용·보유구조 중심 스텁 분석 (--skip-llm) |
+| 데이터 가용성 | 가격·보유·운용비용 필드 사용 |
+| 지금 봐야 할 이벤트 | 시장 변동성·거래량·VIX 레짐 점검 |
+| 투자 의견 | 중립 |
+| 투자 기간 | 12개월 |
+
+- 요약 결론: 스텁 리포트이므로 LLM 없이 구조·숫자 슬롯만 채웁니다. 실제 분석은 agents 경로를 사용하세요.
+
+### 2. 상위 보유종목/구성
+{holdings_table}
+
+- 집중도: 상위 보유 비중·섹터 편중은 실제 LLM 리포트에서 상세 서술 [출처: Yahoo Finance ETF holdings]
+
+### 3. 운용 구조·비용
+- 보수(Expense Ratio): {expense_text} [출처: Yahoo Finance ETF profile]
+- 회전율(Turnover): {turnover_text} [출처: Yahoo Finance ETF profile]
+- 총자산(AUM): {aum_text} [출처: Yahoo Finance ETF profile]
+
+### 4. 리스크(괴리·유동성·집중도)
+- NAV 괴리·프리미엄/디스카운트 변동 가능 [출처: Yahoo Finance]
+- 유동성·거래량·스프레드 리스크 [출처: Yahoo Finance price history]
+- 상위 보유 집중도 리스크 [출처: Yahoo Finance ETF holdings]
+
+### 5. 시장/모멘텀(가격·거래량·VIX)
+- RSI(14): {rsi} [출처: Yahoo Finance price history]
+- {vix_text} [출처: Yahoo Finance VIX]
+
+#### 섹터 기반 전망(3~12개월)
+- 베이스/상방/하방 시나리오는 LLM 경로에서 작성 (스텁 생략)
+
+### 6. 투자 전략(투자자별)
+| 구분 | 실행 아이디어 | 핵심 리스크 관리 포인트 |
+|---|---|---|
+| 신규 진입자 | 분할 접근·비용 확인 | 괴리·유동성 점검 |
+| 기존 보유자 | 목표 비중 유지/리밸런싱 | 집중도·섹터 쏠림 |
+| 단기/스윙 | 변동성·거래량 확인 후 진입 | VIX·거래량 둔화 |
+| 중기/장기 | 저비용·분산 노출 | NAV 괴리 모니터링 |
+
+- 결론(실행 관점): --skip-llm ETF 스텁입니다. 발표·데모용 풀 리포트는 agents 모드로 재실행하세요.
+"""
+
+
+def _stub_report(ticker: str, context: dict) -> str:
+    """자산 유형에 따라 주식/ETF 스텁 분기."""
+    if is_etf_like(context):
+        return _stub_etf_report(ticker, context)
+    return _stub_equity_report(ticker, context)
 
 
 def _effective_use_judge(cfg: dict, args: argparse.Namespace) -> bool:
@@ -243,8 +356,13 @@ def run_single_pipeline(
     step("1/5 데이터 수집 (yfinance)…")
     ingester = YahooIngester()
     snapshot = ingester.fetch(ticker, cfg)
+    asset_cls = classify_snapshot(snapshot)
+    snapshot["asset_classification"] = asset_cls.to_dict()
     write_json(paths["artifacts_dir"] / "snapshot.json", snapshot)
-    step(f"  → snapshot.json 저장 (종가≈{snapshot['price']['current']})")
+    step(
+        f"  → snapshot.json 저장 (종가≈{snapshot['price']['current']}) | "
+        f"자산유형={asset_cls.asset_type} → {asset_cls.branch} 파이프라인"
+    )
     news_enrichment = enrich_news(
         cfg,
         ticker=ticker,
@@ -273,6 +391,11 @@ def run_single_pipeline(
     features = fb.build(snapshot)
     cb = ContextBuilder()
     context = cb.build(snapshot, features, news_enrichment, artifact_date=date_str)
+    branch = pipeline_branch_label(context)
+    step(
+        f"  → 파이프라인 분기 확정: {branch.upper()} "
+        f"(asset_type={context.get('metadata', {}).get('asset_type')})"
+    )
     write_json(paths["artifacts_dir"] / "context.json", context)
 
     budget = cb.check_token_budget(context)
@@ -286,18 +409,25 @@ def run_single_pipeline(
 
     llm_report: LLMProvider | None = None
     llm_mode = (cfg.get("llm", {}).get("mode") or "agents").lower()
+    etf_like = is_etf_like(context)
+    if etf_like and llm_mode != "agents" and not args.skip_llm:
+        step("  [분기] ETF 감지 — legacy 단일 호출 대신 agents 경로로 자동 전환")
+        llm_mode = "agents"
+
     if args.skip_llm:
-        step("3/5 리포트: 분기 → --skip-llm, 내장 스텁 Markdown 사용")
+        stub_kind = "ETF" if etf_like else "주식"
+        step(f"3/5 리포트: --skip-llm → {stub_kind} 스텁 Markdown")
         report_md = _stub_report(ticker, context)
         paths["report_md"].write_text(report_md, encoding="utf-8")
     elif llm_mode == "agents":
-        step("3/5 리포트: Agents (OpenAI Agents SDK)…")
+        route = "ETF(holdings+etf_composer)" if etf_like else "주식(valuation~composer)"
+        step(f"3/5 리포트: Agents ({route})…")
         from agents.orchestrator import run_agent_report
 
         report_md = run_agent_report(cfg, context, artifacts_dir=paths["artifacts_dir"])
         paths["report_md"].write_text(report_md, encoding="utf-8")
     else:
-        step("3/5 리포트: LLM 단일 호출 (legacy)…")
+        step("3/5 리포트: LLM 단일 호출 (legacy · 주식 템플릿)…")
         llm_report = LLMProvider(cfg)
         report_md = compose_markdown_report(llm_report, prompts_dir, context)
         paths["report_md"].write_text(report_md, encoding="utf-8")

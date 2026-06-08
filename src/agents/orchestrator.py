@@ -17,14 +17,8 @@ from agents.postcheck import validate_etf_report_contract, validate_report_contr
 from agents.risk_agent import run_risk_agent
 from agents.schemas import ComposerInput, EtfComposerInput
 from agents.valuation_agent import run_valuation_agent
+from fio.asset_class import is_etf_like
 from fio.storage import write_json
-
-ETF_LIKE_ASSET_TYPES = {"ETF", "FUND", "MUTUALFUND", "ETN"}
-
-
-def _is_etf_like(context: dict[str, Any]) -> bool:
-    asset_type = str((context.get("metadata") or {}).get("asset_type") or "").strip().upper()
-    return asset_type in ETF_LIKE_ASSET_TYPES
 
 
 def _actual_per(context: dict[str, Any]) -> float | None:

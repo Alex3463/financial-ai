@@ -4,6 +4,7 @@ import re
 from typing import Any
 
 from eval.number_scan import count_numeric_spans
+from fio.asset_class import is_etf_like as _is_etf_like
 
 OVERCONFIDENCE = [
     r"(무조건|확실히|반드시|절대로)\s*(오른|상승|매수|이익)",
@@ -51,12 +52,6 @@ def _try_per_from_text(chunk: str) -> float | None:
             except ValueError:
                 continue
     return None
-
-
-def _is_etf_like(context: dict[str, Any]) -> bool:
-    meta = context.get("metadata") if isinstance(context.get("metadata"), dict) else {}
-    at = str(meta.get("asset_type") or "").upper()
-    return at in {"ETF", "FUND", "MUTUALFUND", "ETN"}
 
 
 def _run_etf_checks(report_text: str, context: dict[str, Any]) -> dict[str, Any]:

@@ -45,6 +45,7 @@
 
 ### ETF / 펀드
 
+- **자산 분류** (`fio/asset_class.py`): `quoteType` → 펀드 보유/운용 데이터 → 이름 휴리스틱 순으로 ETF·주식 분기 (`snapshot.asset_classification`에 기록)
 - `holdings_agent` + `etf_composer_agent` 전용 경로
 - Top Holdings, 보수, AUM, 섹터 비중 등 `funds_data` 활용
 - ETF 전용 postcheck·평가 루브릭 분기

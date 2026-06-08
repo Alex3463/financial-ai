@@ -9,39 +9,11 @@ from typing import Any
 import tiktoken
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
+from fio.asset_class import classify_snapshot
+
 
 def today_str() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d")
-
-
-def _infer_asset_type(snapshot: dict[str, Any]) -> str:
-    """
-    Best-effort asset type classification for routing.
-
-    yfinance `info.quoteType` is not always present (e.g. some funds/ETFs),
-    so we fall back to light heuristics based on name and the presence of financial statements.
-    """
-    info = dict(snapshot.get("info") or {})
-    quote_type = str(info.get("quoteType") or "").strip().upper()
-    if quote_type:
-        return quote_type
-
-    name = str(info.get("longName") or info.get("shortName") or snapshot.get("ticker") or "")
-    name_l = name.lower()
-    if any(key in name_l for key in (" etf", " etn", " fund", " trust", " index")):
-        return "FUND"
-
-    fin = dict(snapshot.get("financials") or {})
-    income = fin.get("income_stmt")
-    balance = fin.get("balance_sheet")
-    cashflow = fin.get("cashflow")
-    if (isinstance(income, dict) and not income) and (isinstance(balance, dict) and not balance) and (
-        isinstance(cashflow, dict) and not cashflow
-    ):
-        # If there are no statements and no quoteType, treat as non-corporate by default.
-        return "FUND"
-
-    return "EQUITY"
 
 
 class ContextBuilder:
@@ -61,7 +33,7 @@ class ContextBuilder:
         deep_read_status = dict((news_enrichment or {}).get("status", {}))
         company_relevant_articles = list((news_enrichment or {}).get("company_relevant_articles", []))
         market_reference_date = price.get("market_reference_date") or "데이터 미제공"
-        asset_type = _infer_asset_type(snapshot)
+        asset_type = classify_snapshot(snapshot).asset_type
         community_summary = self._community_summary(snapshot.get("community") or {})
         return {
             "metadata": {
