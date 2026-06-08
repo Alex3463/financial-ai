@@ -100,7 +100,8 @@ def sanitize_report_prose(report_md: str) -> str:
     text = re.sub(r"\s*/\s*provided input", "", text, flags=re.I)
     text = re.sub(r"concentration_note/", "Yahoo Finance ETF holdings, ", text, flags=re.I)
     text = re.sub(r"\(입력 제공\)", "", text)
-    text = re.sub(r"\s{2,}", " ", text)
+    # 줄바꿈(\n)은 유지 — \s{2,}는 Markdown 구조(빈 줄·헤더)를 한 줄로 붙여버림
+    text = re.sub(r"[ \t]{2,}", " ", text)
     return text
 
 

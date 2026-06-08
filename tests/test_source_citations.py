@@ -60,6 +60,13 @@ class SourceCitationTests(unittest.TestCase):
         out = normalize_report_citations(md, data_as_of="2026-06-08")
         self.assertIn("Yahoo Finance price history", out)
 
+    def test_polish_preserves_markdown_newlines(self) -> None:
+        md = "# SPY ETF 분석 리포트\n\n### 1. ETF 요약\n\n| 항목 | 내용 |\n|---|---|\n| ETF 성격 | 패시브 [출처: provided input]\n"
+        polished = polish_etf_report_markdown(md, data_as_of="2026-06-08")
+        self.assertIn("\n\n### 1.", polished)
+        self.assertIn("\n|---|---|\n", polished)
+        self.assertNotIn("리포트 ### 1.", polished)
+
 
 if __name__ == "__main__":
     unittest.main()
