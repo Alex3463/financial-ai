@@ -227,7 +227,6 @@ async function ensureSentiment(data) {
   const n = data.news_enrichment || {};
   const sa = n.sentiment_analysis;
   if (sa?.articles?.length || sa?.skipped) return data;
-  if (sa?.error) return data;
   if (!data.ticker || !data.date) return data;
   const deep = n.deep_read_articles || [];
   const fallback = n.company_relevant_articles || [];

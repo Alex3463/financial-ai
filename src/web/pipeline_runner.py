@@ -161,6 +161,9 @@ def compute_sentiment_for_run(ticker: str, date: str) -> dict[str, Any]:
         return {"error": "news_enrichment.json 없음", "articles": [], "aggregate": {}}
 
     enrichment = json.loads(news_path.read_text(encoding="utf-8"))
+    sa_existing = enrichment.get("sentiment_analysis") or {}
+    if sa_existing.get("error"):
+        enrichment.pop("sentiment_analysis", None)
     if enrichment.get("sentiment_analysis") and not enrichment["sentiment_analysis"].get("error"):
         sa = enrichment["sentiment_analysis"]
         if sa.get("articles") is not None and not sa.get("skipped"):

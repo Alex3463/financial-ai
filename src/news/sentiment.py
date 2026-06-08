@@ -14,10 +14,11 @@ def _get_finbert_pipeline():
     """ProsusAI/finbert — lazy load (첫 호출 시 모델 다운로드)."""
     from transformers import pipeline
 
+    # transformers 5.x: return_all_scores=True 는 top-1 dict만 반환 → top_k=None 사용
     return pipeline(
         "text-classification",
         model="ProsusAI/finbert",
-        return_all_scores=True,
+        top_k=None,
     )
 
 
@@ -38,8 +39,23 @@ def _article_text(title: str, summary: str) -> str:
     return text[:MAX_FINBERT_CHARS] if text else title[:MAX_FINBERT_CHARS]
 
 
-def _scores_from_result(raw_scores: list[dict[str, Any]]) -> dict[str, float]:
-    score_dict = {item["label"].lower(): float(item["score"]) for item in raw_scores}
+def _normalize_score_items(raw: Any) -> list[dict[str, Any]]:
+    """파이프라인 출력을 [{label, score}, ...] 리스트로 통일."""
+    if isinstance(raw, dict):
+        return [raw]
+    if isinstance(raw, list):
+        if not raw:
+            return []
+        if isinstance(raw[0], dict):
+            return raw
+        if isinstance(raw[0], list):
+            return raw[0]
+    return []
+
+
+def _scores_from_result(raw_scores: Any) -> dict[str, float]:
+    items = _normalize_score_items(raw_scores)
+    score_dict = {item["label"].lower(): float(item["score"]) for item in items}
     return {
         "positive": score_dict.get("positive", 0.0),
         "negative": score_dict.get("negative", 0.0),
@@ -67,7 +83,8 @@ def analyze_text_sentiment(text: str) -> dict[str, Any]:
         }
 
     finbert = _get_finbert_pipeline()
-    scores_raw = finbert(text[:MAX_FINBERT_CHARS])[0]
+    batch = finbert(text[:MAX_FINBERT_CHARS])
+    scores_raw = batch[0] if batch else []
     scores = _scores_from_result(scores_raw)
     sentiment_label = max(scores, key=scores.get)
     sentiment_score = scores["positive"] - scores["negative"]
@@ -182,8 +199,10 @@ def enrich_with_finbert_sentiment(
     cfg: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """news_enrichment dict에 FinBERT 감성 결과를 병합합니다."""
-    if enrichment.get("sentiment_analysis"):
-        return enrichment
+    existing = enrichment.get("sentiment_analysis") or {}
+    if existing and not existing.get("error"):
+        if existing.get("skipped") or existing.get("articles") is not None:
+            return enrichment
     if not sentiment_enabled(cfg):
         enrichment["sentiment_analysis"] = {
             "skipped": True,

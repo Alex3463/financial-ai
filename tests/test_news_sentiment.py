@@ -9,11 +9,34 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from news.sentiment import (  # noqa: E402
+    _normalize_score_items,
+    _scores_from_result,
     aggregate_sentiment,
     analyze_news_sentiment,
     classify_aggregate_label,
     enrich_with_finbert_sentiment,
 )
+
+
+def test_scores_from_single_dict_transformers5() -> None:
+    """transformers 5.x return_all_scores=True 가 단일 dict를 줄 때의 회귀."""
+    raw = {"label": "positive", "score": 0.9}
+    scores = _scores_from_result(raw)
+    assert scores["positive"] == 0.9
+    assert scores["negative"] == 0.0
+
+
+def test_scores_from_all_labels_list() -> None:
+    raw = [
+        {"label": "positive", "score": 0.7},
+        {"label": "neutral", "score": 0.2},
+        {"label": "negative", "score": 0.1},
+    ]
+    scores = _scores_from_result(raw)
+    assert scores["positive"] == 0.7
+    assert scores["negative"] == 0.1
+    nested = _normalize_score_items([raw])
+    assert len(nested) == 3
 
 
 def test_classify_aggregate_label() -> None:
