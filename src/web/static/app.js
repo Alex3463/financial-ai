@@ -116,15 +116,7 @@ function renderSummary(data) {
 
   const thesis = hero.thesis.length ? hero.thesis : hero.bullets;
   const risks = hero.risks.length ? hero.risks : [];
-  const newsAgg = (data.news_enrichment || {}).sentiment_analysis?.aggregate;
-  const sentimentSummary =
-    newsAgg?.article_count
-      ? `<div class="highlight-box sentiment-summary ${sentimentCssClass(newsAgg.sentiment_label)}">
-          <span class="highlight-label">뉴스 감성 · FinBERT</span>
-          <p><strong>${esc(newsAgg.sentiment_label_ko)}</strong> · 평균 ${Number(newsAgg.avg_score).toFixed(3)}
-          <span class="muted-inline">(${newsAgg.article_count}건, 긍정−부정)</span></p>
-        </div>`
-      : "";
+  const sentimentBanner = renderSummarySentimentBanner(data);
 
   el.innerHTML = `
     <div class="hero">
@@ -145,7 +137,7 @@ function renderSummary(data) {
       </div>
     </div>
 
-    ${sentimentSummary}
+    ${sentimentBanner}
     ${hero.catalyst ? `<div class="highlight-box"><span class="highlight-label">핵심 쟁점</span><p>${esc(hero.catalyst)}</p></div>` : ""}
     ${hero.event ? `<div class="highlight-box warn"><span class="highlight-label">지금 봐야 할 이벤트</span><p>${esc(hero.event)}</p></div>` : ""}
 
@@ -211,6 +203,64 @@ function renderSentimentHero(sa) {
   </section>`;
 }
 
+function averageArticleScores(articles) {
+  if (!articles?.length) return null;
+  const n = articles.length;
+  return {
+    positive: articles.reduce((s, a) => s + (a.positive || 0), 0) / n,
+    negative: articles.reduce((s, a) => s + (a.negative || 0), 0) / n,
+    neutral: articles.reduce((s, a) => s + (a.neutral || 0), 0) / n,
+  };
+}
+
+function needsSentimentLoad(data) {
+  const n = data.news_enrichment || {};
+  const sa = n.sentiment_analysis;
+  if (sa?.articles?.length || sa?.skipped) return false;
+  return !!((n.deep_read_articles || []).length || (n.company_relevant_articles || []).length);
+}
+
+function renderSummarySentimentBanner(data) {
+  const sa = (data.news_enrichment || {}).sentiment_analysis || {};
+  if (sa.skipped) return "";
+  if (sa.error) {
+    return `<section class="summary-sentiment-banner sent-neu"><p class="sentiment-error">뉴스 감성분석 오류: ${esc(sa.error)}</p></section>`;
+  }
+  const agg = sa.aggregate || {};
+  const articles = sa.articles || [];
+  if (!agg.article_count && !articles.length) return "";
+
+  const cls = sentimentCssClass(agg.sentiment_label);
+  const avg = agg.avg_score != null ? Number(agg.avg_score).toFixed(3) : "—";
+  const avgBar = averageArticleScores(articles);
+
+  const listItems = articles.slice(0, 6).map((a) => {
+    const title = (a.title || "").trim();
+    const short = title.length > 72 ? `${title.slice(0, 70)}…` : title;
+    return `<li class="summary-sent-item ${sentimentCssClass(a.sentiment_label)}">
+      ${renderSentimentBadge(a)}
+      <span class="summary-sent-title">${esc(short)}</span>
+    </li>`;
+  }).join("");
+
+  return `<section class="summary-sentiment-banner ${cls}">
+    <div class="summary-sent-head">
+      <div class="summary-sent-head-left">
+        <span class="sentiment-model">FinBERT</span>
+        <h3 class="summary-sent-heading">최근 뉴스 감성 요약</h3>
+      </div>
+      <div class="summary-sent-aggregate">
+        <span class="summary-sent-label">${esc(agg.sentiment_label_ko || agg.sentiment_label)}</span>
+        <span class="summary-sent-avg">평균 ${avg}</span>
+        <span class="muted-inline">${agg.article_count}건</span>
+      </div>
+    </div>
+    ${avgBar ? renderSentimentBar(avgBar) : ""}
+    ${listItems ? `<ul class="summary-sent-list">${listItems}</ul>` : ""}
+    <p class="summary-sent-hint muted-inline">뉴스 탭에서 기사별 상세 감성을 확인할 수 있습니다.</p>
+  </section>`;
+}
+
 function lookupSentiment(article, sa) {
   if (article.sentiment) return article.sentiment;
   const url = (article.url || article.link || "").replace(/\/$/, "");
@@ -264,7 +314,7 @@ function renderNews(data) {
   }
 
   const hero = renderSentimentHero(sa);
-  const cards = articles.slice(0, 8).map((a) => {
+  const cards = articles.slice(0, 10).map((a) => {
     const title = a.title || a.headline || "(제목 없음)";
     const bullets = a.summary_bullets;
     const sum = Array.isArray(bullets) && bullets.length
@@ -286,17 +336,6 @@ function renderNews(data) {
   el.innerHTML = `${hero}<div class="news-grid">${cards}</div>`;
 }
 
-async function renderNewsAsync(data) {
-  const el = $("#panel-news");
-  const n = data.news_enrichment || {};
-  const hasArticles =
-    (n.deep_read_articles || []).length || (n.company_relevant_articles || []).length;
-  if (hasArticles && !n.sentiment_analysis?.articles?.length && !n.sentiment_analysis?.skipped) {
-    el.innerHTML = `<p class="muted-center">FinBERT 감성분석 중… (첫 실행은 모델 로딩으로 수십 초 걸릴 수 있습니다)</p>`;
-    data = await ensureSentiment(data);
-  }
-  renderNews(data);
-}
 
 function renderDetailsAccordion(title, contentHtml, open = false) {
   return `<details class="accordion" ${open ? "open" : ""}>
@@ -418,9 +457,17 @@ async function renderAll(data) {
   }
   $("#empty").style.display = "none";
   $("#results").style.display = "block";
+
+  if (needsSentimentLoad(data)) {
+    $("#panel-summary").innerHTML =
+      `<p class="muted-center sentiment-loading">FinBERT 뉴스 감성분석 중…<br><span class="muted-inline">첫 실행은 모델 로딩으로 수십 초 걸릴 수 있습니다</span></p>`;
+    data = await ensureSentiment(data);
+    currentData = data;
+  }
+
   renderReport(data);
-  await renderNewsAsync(data);
   renderSummary(currentData);
+  renderNews(currentData);
   renderDetails(currentData);
   switchTab("summary");
 }

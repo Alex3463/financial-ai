@@ -15,8 +15,16 @@ from fio.storage import write_json
 from news.sentiment import enrich_with_finbert_sentiment
 from report.llm import LLMProvider
 
-DEFAULT_MAX_DEEP_READS = 2
+DEFAULT_MAX_DEEP_READS = 5
 DEFAULT_WAIT_AFTER_NAVIGATION_SEC = 1.0
+
+
+def max_deep_reads(cfg: dict[str, Any]) -> int:
+    raw = (cfg.get("news") or {}).get("max_deep_reads", DEFAULT_MAX_DEEP_READS)
+    try:
+        return max(1, min(int(raw), 10))
+    except (TypeError, ValueError):
+        return DEFAULT_MAX_DEEP_READS
 MIN_ARTICLE_TEXT_LENGTH = 400
 MAX_ARTICLE_MARKDOWN_CHARS = 12000
 GENERIC_COMPANY_TOKENS = {
@@ -510,13 +518,14 @@ async def _enrich_news_async(
     artifacts_dir: Path,
     llm_provider: LLMProvider | None,
 ) -> dict[str, Any]:
+    deep_limit = max_deep_reads(cfg)
     company_relevant_articles = select_deep_read_candidates(
         news_items,
         ticker=ticker,
         company_name=company_name,
-        max_articles=max(len(news_items), DEFAULT_MAX_DEEP_READS),
+        max_articles=max(len(news_items), deep_limit),
     )
-    candidates = company_relevant_articles[:DEFAULT_MAX_DEEP_READS]
+    candidates = company_relevant_articles[:deep_limit]
     status = {
         "selected_count": len(candidates),
         "deep_read_count": 0,

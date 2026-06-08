@@ -145,15 +145,28 @@ def _match_key(title: str, url: str) -> str:
     return re.sub(r"\s+", " ", title.strip().lower())
 
 
-def _articles_for_sentiment(enrichment: dict[str, Any]) -> list[dict[str, Any]]:
+def max_sentiment_articles(cfg: dict[str, Any] | None = None) -> int:
+    raw = ((cfg or {}).get("news") or {}).get("sentiment", {}).get("max_articles", 10)
+    try:
+        return max(1, min(int(raw), 20))
+    except (TypeError, ValueError):
+        return 10
+
+
+def _articles_for_sentiment(
+    enrichment: dict[str, Any],
+    *,
+    cfg: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
     deep = enrichment.get("deep_read_articles") or []
     if deep:
         source = deep
     else:
         source = enrichment.get("company_relevant_articles") or []
 
+    limit = max_sentiment_articles(cfg)
     rows: list[dict[str, Any]] = []
-    for article in source[:12]:
+    for article in source[:limit]:
         title = article.get("title") or article.get("headline") or ""
         summary = article.get("summary") or article.get("digest") or ""
         bullets = article.get("summary_bullets")
@@ -210,7 +223,7 @@ def enrich_with_finbert_sentiment(
         }
         return enrichment
 
-    news_items = _articles_for_sentiment(enrichment)
+    news_items = _articles_for_sentiment(enrichment, cfg=cfg)
     if not news_items:
         enrichment["sentiment_analysis"] = {
             "model": "ProsusAI/finbert",

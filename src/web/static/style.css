@@ -762,9 +762,98 @@ ul.bullets li {
   margin-top: 0.5rem;
 }
 
-.highlight-box.sentiment-summary.sent-pos { border-color: #166534; }
-.highlight-box.sentiment-summary.sent-neg { border-color: #991b1b; }
-.highlight-box.sentiment-summary.sent-neu { border-color: #475569; }
+/* ── 요약 탭 뉴스 감성 배너 ── */
+.summary-sentiment-banner {
+  border-radius: var(--radius);
+  padding: 1rem 1.1rem;
+  margin-bottom: 1rem;
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.summary-sentiment-banner.sent-pos { border-color: #166534; background: rgba(34, 197, 94, 0.07); }
+.summary-sentiment-banner.sent-neg { border-color: #991b1b; background: rgba(239, 68, 68, 0.07); }
+.summary-sentiment-banner.sent-neu { border-color: #475569; background: rgba(148, 163, 184, 0.07); }
+
+.summary-sent-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.5rem 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.summary-sent-head-left {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.summary-sent-heading {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.summary-sent-aggregate {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.summary-sent-label {
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+
+.summary-sent-avg {
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.summary-sent-list {
+  list-style: none;
+  margin: 0.65rem 0 0.35rem;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.summary-sent-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.45rem 0.55rem;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.15);
+  border-left: 3px solid var(--border);
+}
+
+.summary-sent-item.sent-pos { border-left-color: #22c55e; }
+.summary-sent-item.sent-neg { border-left-color: #ef4444; }
+.summary-sent-item.sent-neu { border-left-color: #94a3b8; }
+
+.summary-sent-title {
+  font-size: 0.82rem;
+  line-height: 1.4;
+  color: var(--text);
+  flex: 1;
+  padding-top: 0.1rem;
+}
+
+.summary-sent-hint {
+  margin: 0.35rem 0 0;
+  font-size: 0.75rem;
+}
+
+.sentiment-loading {
+  padding: 2rem 1rem;
+  text-align: center;
+}
 
 /* ── 상세 아코디언 ── */
 .accordion {

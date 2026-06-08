@@ -39,9 +39,11 @@ mcp:
     output_dir: ".playwright-mcp"
 
 news:
+  max_deep_reads: 5
   sentiment:
     enabled: true
     model: "ProsusAI/finbert"
+    max_articles: 10
 
 ingest:
   price_period: "1y"
