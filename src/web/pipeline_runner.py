@@ -157,12 +157,11 @@ def _community_payload(
     context: dict[str, Any] | None,
 ) -> dict[str, Any]:
     raw = (snapshot or {}).get("community") or {}
-    summary = ((context or {}).get("news_summary") or {}).get("community") or {}
-    if summary.get("status") == "ok":
-        return {"raw": raw, "summary": summary}
+    # snapshot.community가 최신이면 context의 stale summary보다 우선
     if raw.get("status") == "ok" and raw.get("conversations"):
         summary = ContextBuilder()._community_summary(raw)  # noqa: SLF001
         return {"raw": raw, "summary": summary}
+    summary = ((context or {}).get("news_summary") or {}).get("community") or {}
     return {"raw": raw, "summary": summary}
 
 
@@ -178,10 +177,22 @@ def refresh_community_for_run(ticker: str, date: str, *, max_items: int = 20) ->
         return {"error": "snapshot.json 없음"}
 
     snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
-    community = _fetch_yahoo_community(sym, max_items=max_items)
+    prev = snapshot.get("community") if isinstance(snapshot.get("community"), dict) else {}
+    board_id = str(prev.get("message_board_id") or "").strip() or None
+    community = _fetch_yahoo_community(sym, max_items=max_items, message_board_id=board_id)
+    if community.get("status") != "ok" and prev.get("status") == "ok" and prev.get("conversations"):
+        community = prev
     snapshot["community"] = community
     write_json(snapshot_path, snapshot)
     summary = ContextBuilder()._community_summary(community)  # noqa: SLF001
+    context_path = art / "context.json"
+    if context_path.is_file():
+        context = json.loads(context_path.read_text(encoding="utf-8"))
+        news_summary = context.get("news_summary")
+        if isinstance(news_summary, dict):
+            news_summary["community"] = summary
+            context["news_summary"] = news_summary
+            write_json(context_path, context)
     return {"raw": community, "summary": summary}
 
 

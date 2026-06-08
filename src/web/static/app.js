@@ -397,7 +397,7 @@ function renderCommunityBoard(data) {
   const posts = raw.conversations || [];
   const source = raw.source_url || summary.source_url || "";
 
-  if (raw.status === "error" || (!posts.length && summary.status !== "ok")) {
+  if (!posts.length && (raw.status === "error" || summary.status !== "ok")) {
     const err = raw.error || summary.note || "커뮤니티 글을 가져오지 못했습니다.";
     el.innerHTML = `<section class="board-empty">
       <h3>Yahoo Finance 종토방</h3>

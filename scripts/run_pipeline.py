@@ -93,6 +93,18 @@ def _rel_report_path(report_md: Path) -> str:
         return str(report_md)
 
 
+def _community_payload_for_result(
+    snapshot: dict[str, Any],
+    context: dict[str, Any],
+) -> dict[str, Any]:
+    raw = snapshot.get("community") or {}
+    if raw.get("status") == "ok" and raw.get("conversations"):
+        cb = ContextBuilder()
+        return {"raw": raw, "summary": cb._community_summary(raw)}  # noqa: SLF001
+    summary = (context.get("news_summary") or {}).get("community") or {}
+    return {"raw": raw, "summary": summary}
+
+
 def _stub_report(ticker: str, context: dict) -> str:
     """로컬 검증용 최소 Markdown (섹션·키워드 포함)."""
     meta = context.get("metadata", {})
@@ -416,10 +428,7 @@ def run_single_pipeline(
             "news_count": len(snapshot.get("news") or []),
         },
         "news_enrichment": news_enrichment,
-        "community": {
-            "raw": snapshot.get("community") or {},
-            "summary": (context.get("news_summary") or {}).get("community") or {},
-        },
+        "community": _community_payload_for_result(snapshot, context),
         "context": context,
         "report_md": report_md,
         "eval": eval_out,
