@@ -49,12 +49,6 @@
         <label for="date">기준일 (선택)</label>
         <input id="date" type="date" title="비우면 오늘(UTC)" />
 
-        <div class="options">
-          <label><input type="checkbox" id="skip_llm" /> LLM 생략 (스텁 리포트, 빠른 데모)</label>
-          <label><input type="checkbox" id="no_judge" checked /> LLM Judge 끄기 (M0 규칙만)</label>
-          <label><input type="checkbox" id="judge" /> Judge 강제 켜기</label>
-          <label><input type="checkbox" id="force_refresh" /> 강제 재생성 (캐시 무시)</label>
-        </div>
         <p id="cache-hint" class="cache-hint" hidden></p>
 
         <button type="submit" class="primary" id="submit">

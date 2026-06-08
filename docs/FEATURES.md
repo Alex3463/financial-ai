@@ -164,7 +164,7 @@ M0 항목 + Judge 6항목:
 
 ### 사이드바 기능
 
-- 티커·기준일 입력, 옵션 체크박스 (LLM 생략, Judge, 캐시 무시)
+- 티커·기준일 입력 후 **리포트 생성** (파이프라인 옵션은 서버·CLI 전용)
 - **진행 로그** — `[pipeline]` 메시지 실시간 폴링
 - **접속 현황** — 최근 5분 내 요청 IP (공개 URL 시 Cloudflare IP일 수 있음)
 - **최근 실행** — `artifacts/` 이력에서 즉시 재로드
@@ -182,7 +182,7 @@ M0 항목 + Judge 6항목:
 - **판별**: `src/web/cache.py` → `is_complete_run()`  
   (`snapshot`, `context`, `eval`, `signal` + 리포트 80자 이상)
 - **효과**: 공개 URL 데모 시 LLM 비용·대기 시간 절감
-- **강제 재생성**: UI 「캐시 무시」 또는 API `force_refresh: true`
+- **강제 재생성**: CLI 재실행 또는 `DASHBOARD_FORCE_REFRESH=1` (웹 UI 미노출)
 - **힌트**: 폼 입력 시 `/api/cache/{ticker}` 로 캐시 여부 표시
 
 ---

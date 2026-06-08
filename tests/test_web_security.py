@@ -40,15 +40,12 @@ def test_analyze_requires_token_in_public_mode(client: TestClient, monkeypatch) 
     monkeypatch.setenv("DASHBOARD_API_TOKEN", "secret-test-token")
     monkeypatch.delenv("DASHBOARD_DEMO_OPEN", raising=False)
 
-    res = client.post(
-        "/api/analyze",
-        json={"ticker": "AAPL", "skip_llm": True},
-    )
+    res = client.post("/api/analyze", json={"ticker": "AAPL"})
     assert res.status_code == 401
 
     ok = client.post(
         "/api/analyze",
-        json={"ticker": "AAPL", "skip_llm": True},
+        json={"ticker": "AAPL"},
         headers={"X-Dashboard-Token": "secret-test-token"},
     )
     assert ok.status_code == 200

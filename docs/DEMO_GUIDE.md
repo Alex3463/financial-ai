@@ -28,7 +28,7 @@ uv run scripts/run_pipeline.py \
 ```
 
 → `artifacts/<티커>/$DATE/` + `reports/<티커>/$DATE.md` 확인  
-→ 기능 업데이트(FinBERT·5건 deep-read) 후에는 **반드시 재실행** (웹 「캐시 무시」 없이 CLI 재실행 = 덮어쓰기)
+→ 기능 업데이트(FinBERT·5건 deep-read) 후에는 **반드시 CLI로 재실행** (동일 티커·날짜 덮어쓰기)
 
 **캐시 완료 확인 (티커당)**:
 
@@ -123,17 +123,10 @@ launchctl bootout "gui/$(id -u)" ~/Library/LaunchAgents/com.financialai.dashboar
 
 1. 티커 입력: `AAPL` (또는 `005930.KS`)
 2. **캐시가 있으면** 즉시 로드 → 「캐시」 배지 설명
-3. **새 분석**이 필요하면 「캐시 무시」 체크 후 실행
+3. **캐시가 있으면** 즉시 로드, 없으면 **리포트 생성**으로 파이프라인 실행
 4. 진행 로그에 `1/5 ~ 5/5` 메시지가 쌓이는 것을 보여줌
 
-**옵션 설명**:
-
-| 체크박스 | 용도 |
-|----------|------|
-| LLM 생략 | 스텁 리포트, 1분 내 파이프라인 구조만 시연 |
-| LLM Judge 끄기 (기본 체크) | M0 규칙만, Judge API 호출 생략 |
-| Judge 강제 켜기 | M2 full 100점 루브릭 |
-| 강제 재생성 | 캐시 무시 |
+운영자 전용 옵션(LLM 생략·Judge·캐시 무시)은 웹 UI에 노출하지 않습니다. CLI `run_pipeline.py` 플래그 또는 서버 환경 변수(`DASHBOARD_SKIP_LLM`, `DASHBOARD_JUDGE`, `DASHBOARD_FORCE_REFRESH` 등)로 관리하세요.
 
 ### 2. 요약 탭
 
@@ -246,7 +239,7 @@ uv run scripts/run_pipeline.py --list-models
 
 ### 캐시 때문에 「새 결과」가 안 나옴
 
-- UI에서 **「강제 재생성 (캐시 무시)」** 체크
+- CLI로 동일 티커·날짜 재실행 (`run_pipeline.py`) 또는 `DASHBOARD_FORCE_REFRESH=1`
 - 또는 `artifacts/<티커>/<날짜>/` 폴더 삭제 후 재실행
 
 ### 포트 충돌 (8765)

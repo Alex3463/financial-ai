@@ -1134,10 +1134,6 @@ $("#form").addEventListener("submit", async (e) => {
   const body = {
     ticker,
     date: dateVal || null,
-    skip_llm: $("#skip_llm").checked,
-    no_judge: $("#no_judge").checked,
-    judge: $("#judge").checked,
-    force_refresh: $("#force_refresh").checked,
   };
 
   const res = await fetch("/api/analyze", {
@@ -1211,7 +1207,7 @@ async function updateCacheHint() {
   const ticker = $("#ticker").value.trim().toUpperCase();
   const dateVal = $("#date").value.trim();
   const hint = $("#cache-hint");
-  if (!ticker || $("#force_refresh").checked) {
+  if (!ticker) {
     hint.hidden = true;
     return;
   }
@@ -1234,7 +1230,6 @@ async function updateCacheHint() {
 
 $("#ticker")?.addEventListener("input", () => setTimeout(updateCacheHint, 300));
 $("#date")?.addEventListener("change", updateCacheHint);
-$("#force_refresh")?.addEventListener("change", updateCacheHint);
 
 async function loadVisitors() {
   const box = $("#visitors");

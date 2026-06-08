@@ -91,10 +91,6 @@ app.add_middleware(_AccessLogMiddleware)
 class AnalyzeRequest(BaseModel):
     ticker: str = Field(..., min_length=1, max_length=20)
     date: str | None = Field(default=None, max_length=10)
-    skip_llm: bool = False
-    judge: bool = False
-    no_judge: bool = False
-    force_refresh: bool = False
 
 
 @app.get("/api/health")
@@ -209,24 +205,10 @@ def start_analyze(req: AnalyzeRequest, request: Request) -> dict[str, str]:
     sym = validate_ticker(req.ticker)
     date_str = validate_date(req.date) if req.date else today_str()
 
-    if is_public_mode() and not req.skip_llm and demo_open_mode():
-        raise HTTPException(
-            status_code=403,
-            detail="공개 데모 모드에서는 LLM 생략(스텁)만 허용됩니다. 전체 분석은 로컬 또는 토큰 인증 후 사용하세요.",
-        )
-
     job = jobs.create(sym, date_str)
 
     def runner(progress):
-        return run_for_dashboard(
-            sym,
-            date=date_str,
-            skip_llm=req.skip_llm,
-            judge=req.judge,
-            no_judge=req.no_judge,
-            force_refresh=req.force_refresh,
-            progress=progress,
-        )
+        return run_for_dashboard(sym, date=date_str, progress=progress)
 
     try:
         jobs.run_in_background(job, runner)

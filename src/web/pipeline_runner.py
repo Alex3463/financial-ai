@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from argparse import Namespace
 from collections.abc import Callable
@@ -30,6 +31,40 @@ from report.composer import ContextBuilder  # noqa: E402
 from web.security import validate_date, validate_ticker  # noqa: E402
 
 
+def _env_flag(name: str, default: bool) -> bool:
+    raw = os.environ.get(name, "").strip().lower()
+    if not raw:
+        return default
+    return raw in ("1", "true", "yes", "on")
+
+
+def dashboard_pipeline_options() -> Namespace:
+    """
+    웹 대시보드 분석 실행 옵션 (서버·config·env 전용, 클라이언트 미노출).
+
+    환경 변수 (선택):
+      DASHBOARD_SKIP_LLM=1     — 스텁 리포트
+      DASHBOARD_JUDGE=1        — LLM Judge 강제
+      DASHBOARD_NO_JUDGE=1     — Judge 끄기 (기본: config와 무관하게 끔)
+      DASHBOARD_FORCE_REFRESH=1 — 캐시 무시
+    """
+    judge = _env_flag("DASHBOARD_JUDGE", False)
+    no_judge = False if judge else _env_flag("DASHBOARD_NO_JUDGE", True)
+
+    return Namespace(
+        skip_llm=_env_flag("DASHBOARD_SKIP_LLM", False),
+        judge=judge,
+        no_judge=no_judge,
+        force_refresh=_env_flag("DASHBOARD_FORCE_REFRESH", False),
+        model_log=False,
+        ticker=None,
+        tickers=None,
+        tickers_file=None,
+        date=None,
+        list_models=False,
+    )
+
+
 def make_pipeline_args(
     *,
     skip_llm: bool = False,
@@ -53,17 +88,14 @@ def run_for_dashboard(
     ticker: str,
     *,
     date: str | None = None,
-    skip_llm: bool = False,
-    judge: bool = False,
-    no_judge: bool = False,
-    force_refresh: bool = False,
     progress: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
     cfg = load_config()
+    opts = dashboard_pipeline_options()
     sym = validate_ticker(ticker)
     date_str = validate_date(date) if date else today_str()
 
-    if not force_refresh and is_complete_run(cfg, sym, date_str):
+    if not opts.force_refresh and is_complete_run(cfg, sym, date_str):
         if progress:
             progress(f"캐시: {sym}/{date_str} 기존 산출물 사용 (재생성 생략)")
         cached = load_existing_run(sym, date_str)
@@ -72,7 +104,7 @@ def run_for_dashboard(
             cached["cache_hit"] = True
             return cached
 
-    args = make_pipeline_args(skip_llm=skip_llm, judge=judge, no_judge=no_judge)
+    args = opts
     result = run_single_pipeline(
         cfg,
         sym,
