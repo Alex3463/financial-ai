@@ -17,15 +17,24 @@
 
 ### 사전 실행으로 캐시 준비 (권장)
 
-발표 중 LLM 대기를 줄이려면 **미리 1~2종목**을 돌려 둡니다.
+발표 중 LLM 대기를 줄이려면 **시연할 종목을 미리 배치**로 돌려 둡니다.
 
 ```bash
 cd financial-ai
-uv run scripts/run_pipeline.py --ticker AAPL
-uv run scripts/run_pipeline.py --ticker 005930.KS
+DATE=$(date -u +%Y-%m-%d)
+uv run scripts/run_pipeline.py \
+  --tickers "AAPL,TSLA,NVDA,005930.KS,000660.KS,011070.KS" \
+  --date "$DATE" --no-judge
 ```
 
-→ `artifacts/AAPL/<오늘날짜>/`, `reports/AAPL/<오늘날짜>.md` 생성 확인
+→ `artifacts/<티커>/$DATE/` + `reports/<티커>/$DATE.md` 확인  
+→ 기능 업데이트(FinBERT·5건 deep-read) 후에는 **반드시 재실행** (웹 「캐시 무시」 없이 CLI 재실행 = 덮어쓰기)
+
+**캐시 완료 확인 (티커당)**:
+
+- `news_enrichment.json` → `sentiment_analysis.articles` 존재
+- `deep_read_articles` 5건 근처 (뉴스 부족 시 그 이하)
+- `snapshot.json` → `community` (Yahoo 404 시 `status: error` — 종토방 탭에서 「다시 수집」 시도)
 
 ### 네트워크·전원
 
@@ -142,17 +151,23 @@ launchctl bootout "gui/$(id -u)" ~/Library/LaunchAgents/com.financialai.dashboar
 ### 4. 뉴스 탭
 
 - **FinBERT 종합 감성** 히어로 (긍정/부정/중립, 평균 점수)
-- Playwright deep-read로 읽은 기사 요약
+- Playwright deep-read로 읽은 기사 요약 (최대 10건 표시, 파이프라인은 5건 deep-read)
 - 기사별 **감성 배지** + 긍정/중립/부정 **확률 바**
 - 원문 링크 — 「헤드라인만이 아니라 본문 기반」 강조
 
-### 5. 상세 데이터 탭
+### 5. 종토방 탭
+
+- Yahoo Finance **community** 게시판 카드 (제목·작성자·본문·추천/댓글)
+- **여론 요약** 배너 (긍정/부정/중립 비율)
+- 데이터 없을 때 「다시 수집」 — Yahoo 404·지역 제한 시 빈 상태 가능
+
+### 6. 상세 데이터 탭
 
 - **주가 캔들 차트** (3M/6M/12M), 목표가·손절 참고선
 - 평가 breakdown 아코디언 (루브릭 항목별 점수)
 - 원본 JSON (snapshot / context / signal) — 기술 질문 대비
 
-### 6. 부가 UI
+### 7. 부가 UI
 
 - **접속 현황**: 공개 URL로 팀원이 들어오면 active IP 수 증가 (근사)
 - **최근 실행**: 과거 `artifacts/` 즉시 재로드
@@ -164,7 +179,7 @@ launchctl bootout "gui/$(id -u)" ~/Library/LaunchAgents/com.financialai.dashboar
 
 1. **문제** (30초): 종목 리서치는 데이터·뉴스·서술·품질 검증이 분산되어 있다.
 2. **해결** (30초): 5단계 파이프라인 + 다중 에이전트 + 자동 루브릭.
-3. **라이브** (90초): 대시보드에서 `AAPL` 로드(캐시) → 요약·리포트·뉴스·차트 순으로 클릭.
+3. **라이브** (90초): 대시보드에서 `AAPL` 로드(캐시) → 요약·리포트·뉴스·종토방·차트 순으로 클릭.
 4. **아키텍처** (30초): `ARCHITECTURE.md` 다이어그램 1장 — ingest → context → agents → eval → signal.
 5. **면책** (10초): 투자 권유 아님, 데모·참고용.
 

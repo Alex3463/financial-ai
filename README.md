@@ -12,7 +12,7 @@
 |---|---|
 | **무엇을 하나** | Yahoo Finance 수집 → 뉴스 심층 읽기 → **FinBERT 감성** → **LLM 다중 에이전트** 리포트 → 규칙·Judge 평가 → 매매 신호 스텁 |
 | **CLI 진입점** | `scripts/run_pipeline.py` — 콘솔 `[pipeline] 1/5~5/5` |
-| **웹 데모** | `scripts/run_dashboard.py` — 4탭 UI, 가격 차트, 공개 URL·캐시·API 토큰 |
+| **웹 데모** | `scripts/run_dashboard.py` — 5탭 UI(종토방 포함), 차트, 공개 URL·캐시·API 토큰 |
 | **저장소** | [github.com/Alex3463/financial-ai](https://github.com/Alex3463/financial-ai) |
 | **기술 스택** | Python 3.12 · uv · yfinance · FinBERT · OpenAI Agents · Playwright MCP · FastAPI |
 
@@ -69,7 +69,7 @@ uv run scripts/run_dashboard.py --public   # cloudflared 필요, ?token= URL 공
 
 | 단계 | 내용 | 산출물(주요) |
 |------|------|----------------|
-| **1/5** | yfinance + 뉴스 deep-read + **FinBERT 감성** | `snapshot.json`, `news_enrichment.json` |
+| **1/5** | yfinance + 뉴스 deep-read(최대 5건) + **FinBERT 감성** + Yahoo community | `snapshot.json`, `news_enrichment.json` |
 | **2/5** | 피처·컨텍스트 | `context.json` |
 | **3/5** | LLM 리포트 (`agents` / `legacy`) | `reports/<티커>/<날짜>.md` |
 | **4/5** | 규칙(M0) + Judge(M2) | `eval.json` |
@@ -86,10 +86,21 @@ uv run scripts/run_dashboard.py --public     # 토큰 포함 공개 URL
 
 | 탭 | 설명 |
 |----|------|
-| **요약** | 투자 의견·지표·FinBERT 종합 감성 |
+| **요약** | 투자 의견·지표·FinBERT 감성·종토방 여론 힌트 |
 | **리포트** | 섹션별 Markdown 카드 |
-| **뉴스** | 기사 카드 + FinBERT 긍정/부정/중립 배지·확률 바 |
+| **뉴스** | deep-read 기사 + FinBERT 배지·확률 바 (최대 10건) |
+| **종토방** | Yahoo Finance community 게시판·여론 요약 |
 | **상세 데이터** | Lightweight Charts + 참고선 + JSON |
+
+### 발표용 캐시 일괄 생성
+
+```bash
+uv run scripts/run_pipeline.py \
+  --tickers "AAPL,TSLA,NVDA,005930.KS,000660.KS,011070.KS" \
+  --date $(date -u +%Y-%m-%d) --no-judge
+```
+
+기능 업데이트 후에는 **「캐시 무시」** 없이 재실행해야 FinBERT·5건 deep-read·community가 반영됩니다.
 
 - 상단 **GitHub 배너** → [Alex3463/financial-ai](https://github.com/Alex3463/financial-ai)
 - **캐시** · **접속 현황** · `#티커/날짜` 공유 URL
@@ -102,6 +113,7 @@ uv run scripts/run_dashboard.py --public     # 토큰 포함 공개 URL
 | 키 | 설명 |
 |----|------|
 | `llm.mode` | `agents`(기본) / `legacy` |
+| `news.max_deep_reads` | 뉴스 deep-read 최대 건수 (기본 5) |
 | `news.sentiment.enabled` | FinBERT 감성 (기본 true) |
 | `mcp.playwright` | 뉴스 deep-read |
 | `eval.use_llm_judge` | M2 Judge |
@@ -143,10 +155,10 @@ financial-ai/
 
 ### 2026-06-08 (최종)
 
-- **FinBERT 뉴스 감성**: `ProsusAI/finbert`, 파이프라인 1/5 + 뉴스/요약 탭 UI
-- **웹 보안**: API 토큰, 속도 제한, 경로 검증, [docs/SECURITY.md](docs/SECURITY.md)
-- **발표 문서** `docs/` · README 두괄식 · GitHub 배너
-- 웹 UI: 4탭, 가격 차트, 접속 현황, 캐시
+- **FinBERT 뉴스 감성** + deep-read 5건 + 요약/뉴스 탭 UI
+- **종토방 탭**: Yahoo community 게시판·여론 요약 (`/api/community`)
+- **웹 보안**: API 토큰·속도 제한 ([docs/SECURITY.md](docs/SECURITY.md))
+- 발표용 6티커 캐시 배치·`docs/` 문서·GitHub 배너
 
 ### 2026-05-12 · 2026-05-11 · 2026-05-09
 
