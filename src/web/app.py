@@ -4,11 +4,13 @@ import os
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+from starlette.middleware.base import BaseHTTPMiddleware
 
+from web.access_log import client_ip_from_headers, visitors
 from web.jobs import JobManager
 from web.pipeline_runner import list_history, load_existing_run, run_for_dashboard
 
@@ -24,6 +26,31 @@ app = FastAPI(
     description="티커 입력 → 파이프라인 실행 → 탭별 결과 대시보드",
     version="0.1.0",
 )
+
+_SKIP_LOG_PREFIXES = ("/static/", "/favicon.ico")
+_SKIP_LOG_EXACT = {"/api/visitors", "/api/health"}
+
+
+class _AccessLogMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        path = request.url.path
+        if path not in _SKIP_LOG_EXACT and not any(
+            path.startswith(p) for p in _SKIP_LOG_PREFIXES
+        ):
+                ip = client_ip_from_headers(
+                    client_host=request.client.host if request.client else None,
+                    headers={k.lower(): v for k, v in request.headers.items()},
+                )
+                visitors.record(
+                    ip=ip,
+                    path=path,
+                    method=request.method,
+                    user_agent=request.headers.get("user-agent", ""),
+                )
+        return await call_next(request)
+
+
+app.add_middleware(_AccessLogMiddleware)
 
 
 class AnalyzeRequest(BaseModel):
@@ -55,6 +82,13 @@ def info() -> dict[str, Any]:
 @app.get("/api/history")
 def history(limit: int = 30) -> dict[str, Any]:
     return {"items": list_history(limit=limit)}
+
+
+@app.get("/api/visitors")
+def get_visitors(active_window_sec: int = 300) -> dict[str, Any]:
+    """최근 5분 이내 요청한 IP = 접속 중(근사). 터널 경유 시 IP는 Cloudflare/프록시 IP일 수 있음."""
+    window = max(60, min(active_window_sec, 3600))
+    return visitors.snapshot(active_window_sec=window)
 
 
 @app.get("/api/runs/{ticker}/{date}")

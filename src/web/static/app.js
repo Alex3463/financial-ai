@@ -3,15 +3,16 @@ const $$ = (sel) => document.querySelectorAll(sel);
 
 let pollTimer = null;
 let currentData = null;
+let chartRangeMonths = 6;
+let _chartPrice = null;
+let _chartTicker = null;
+let _chartData = null;
 
 const TABS = [
-  { id: "overview", label: "개요" },
-  { id: "data", label: "1/5 데이터" },
+  { id: "summary", label: "요약" },
+  { id: "report", label: "리포트" },
   { id: "news", label: "뉴스" },
-  { id: "context", label: "2/5 컨텍스트" },
-  { id: "report", label: "3/5 리포트" },
-  { id: "eval", label: "4/5 평가" },
-  { id: "signal", label: "5/5 신호" },
+  { id: "details", label: "상세 데이터" },
 ];
 
 function fmtNum(n, digits = 2) {
@@ -25,11 +26,10 @@ function esc(s) {
   return d.innerHTML;
 }
 
-function renderMarkdown(md) {
-  if (typeof marked !== "undefined") {
-    return marked.parse(md || "");
-  }
-  return `<pre>${esc(md)}</pre>`;
+function signalBadge(sig) {
+  const s = (sig || "hold").toLowerCase();
+  const label = { buy: "매수", sell: "매도", hold: "관망" }[s] || s.toUpperCase();
+  return `<span class="badge ${s}">${label}</span>`;
 }
 
 function buildTabs() {
@@ -55,178 +55,242 @@ function buildTabs() {
 function switchTab(id) {
   $$(".tab").forEach((el) => el.classList.toggle("active", el.dataset.tab === id));
   $$(".tab-panel").forEach((el) => el.classList.toggle("active", el.id === `panel-${id}`));
+  if (id === "details" && _chartPrice) {
+    requestAnimationFrame(() => mountPriceChart(_chartTicker, _chartPrice));
+  }
 }
 
-function signalBadge(sig) {
-  const s = (sig || "hold").toLowerCase();
-  return `<span class="badge ${s}">${s.toUpperCase()}</span>`;
+function renderSectionCard(section) {
+  const rows = section.rows || [];
+  const bullets = section.bullets || [];
+  let inner = "";
+
+  if (rows.length) {
+    inner += `<dl class="kv-list">${rows
+      .map(
+        (r) =>
+          `<div class="kv-row"><dt>${esc(r.key)}</dt><dd>${esc(r.value)}</dd></div>`
+      )
+      .join("")}</dl>`;
+  }
+  if (bullets.length) {
+    inner += `<ul class="clean-list">${bullets.map((b) => `<li>${esc(b)}</li>`).join("")}</ul>`;
+  }
+  if (!inner) return "";
+
+  return `<article class="section-card">
+    <h3 class="section-title">${esc(section.title)}</h3>
+    ${inner}
+  </article>`;
 }
 
-function renderOverview(data) {
+function renderSummary(data) {
   const o = data.overview || {};
-  const el = $("#panel-overview");
-  el.innerHTML = `
-    <div class="cards">
-      <div class="card"><div class="label">티커</div><div class="value">${esc(data.ticker)}</div></div>
-      <div class="card"><div class="label">회사</div><div class="value">${esc(o.company_name)}</div></div>
-      <div class="card"><div class="label">섹터</div><div class="value">${esc(o.sector || "—")}</div></div>
-      <div class="card"><div class="label">현재가</div><div class="value">${fmtNum(o.current_price)}</div></div>
-      <div class="card"><div class="label">신호</div><div class="value">${signalBadge(o.signal)}</div></div>
-      <div class="card"><div class="label">신뢰도</div><div class="value">${o.confidence != null ? (o.confidence * 100).toFixed(0) + "%" : "—"}</div></div>
-      <div class="card"><div class="label">등급</div><div class="value" style="font-size:0.85rem">${esc(o.grade || "—")}</div></div>
-      <div class="card"><div class="label">점수(100)</div><div class="value">${fmtNum(o.score_normalized_100, 1)}</div></div>
-    </div>
-    <p style="color:var(--muted);font-size:0.85rem">
-      기준일: ${esc(data.date)}
-      ${data.cached || data.cache_hit ? ' · <span class="badge cached">캐시 사용</span>' : ""}
-      · 산출 경로: <code>${esc(data.paths?.artifacts_dir || "")}</code>
-    </p>
-  `;
-}
+  const hero = parseHero(data.report_md || "", data);
+  const el = $("#panel-summary");
 
-function renderData(data) {
-  const s = data.snapshot_summary || {};
-  const price = s.price || {};
-  const info = s.info || {};
-  const el = $("#panel-data");
-  el.innerHTML = `
-    <div class="cards">
-      <div class="card"><div class="label">수집 시각</div><div class="value" style="font-size:0.8rem">${esc(s.fetched_at)}</div></div>
-      <div class="card"><div class="label">52주 고/저</div><div class="value" style="font-size:0.85rem">${fmtNum(price["52w_high"])} / ${fmtNum(price["52w_low"])}</div></div>
-      <div class="card"><div class="label">PER</div><div class="value">${fmtNum(info.trailingPE)}</div></div>
-      <div class="card"><div class="label">Forward PER</div><div class="value">${fmtNum(info.forwardPE)}</div></div>
-      <div class="card"><div class="label">시가총액</div><div class="value" style="font-size:0.85rem">${info.marketCap ? (info.marketCap / 1e9).toFixed(1) + "B" : "—"}</div></div>
-      <div class="card"><div class="label">뉴스 후보</div><div class="value">${s.news_count ?? 0}건</div></div>
-    </div>
-    <h3 style="font-size:0.9rem;color:var(--muted)">snapshot 요약 (JSON)</h3>
-    <pre class="json-block">${esc(JSON.stringify(s, null, 2))}</pre>
-  `;
-}
+  const metrics = [
+    { label: "현재가", value: hero.current },
+    { label: "목표가", value: hero.target },
+    { label: "손절가", value: hero.stop },
+    { label: "투자 기간", value: hero.horizon },
+  ].filter((m) => m.value);
 
-function formatArticleSummary(a) {
-  const bullets = a.summary_bullets;
-  if (Array.isArray(bullets) && bullets.length) {
-    return bullets.map((b) => esc(b)).join(" · ");
-  }
-  const sum = a.summary || a.digest || "";
-  return sum ? esc(sum.slice(0, 280)) : "";
-}
+  const thesis = hero.thesis.length ? hero.thesis : hero.bullets;
+  const risks = hero.risks.length ? hero.risks : [];
 
-function renderNews(data) {
-  const n = data.news_enrichment || {};
-  const status = n.status || {};
-  const deep = n.deep_read_articles || [];
-  const articles = deep.length ? deep : n.company_relevant_articles || [];
-  const failures = n.failures || [];
-  const el = $("#panel-news");
-  let list = "";
-  if (articles.length) {
-    list = "<ul class='bullets'>" + articles.slice(0, 8).map((a) => {
-      const title = a.title || a.headline || "(제목 없음)";
-      const sum = formatArticleSummary(a);
-      const url = a.url || a.link || "";
-      const link = url ? ` <a href="${esc(url)}" target="_blank" rel="noopener" style="color:#93c5fd;font-size:0.8rem">원문</a>` : "";
-      return `<li><strong>${esc(title)}</strong>${link}${sum ? "<br><span style='color:var(--muted)'>" + sum + "</span>" : ""}</li>`;
-    }).join("") + "</ul>";
-  } else {
-    list = "<p style='color:var(--muted)'>심층 읽기 기사가 없거나 수집되지 않았습니다.</p>";
-  }
-  if (failures.length) {
-    list += `<h3 style="font-size:0.9rem;color:var(--danger);margin-top:1rem">실패 ${failures.length}건</h3><ul class="bullets">${failures.slice(0, 5).map((f) => `<li>${esc(f.title || f.url)} — <span style="color:var(--muted)">${esc((f.error || "").slice(0, 120))}</span></li>`).join("")}</ul>`;
-  }
   el.innerHTML = `
-    <div class="cards">
-      <div class="card"><div class="label">선택</div><div class="value">${status.selected_count ?? 0}</div></div>
-      <div class="card"><div class="label">심층 읽기 성공</div><div class="value">${status.deep_read_count ?? 0}</div></div>
-      <div class="card"><div class="label">실패</div><div class="value">${status.failed_count ?? 0}</div></div>
+    <div class="hero">
+      <div class="hero-top">
+        <div>
+          <p class="hero-ticker">${esc(data.ticker)} · ${esc(o.company_name || data.ticker)}</p>
+          <p class="hero-date">${esc(data.date)}${data.cached || data.cache_hit ? ' <span class="badge cached">캐시</span>' : ""}</p>
+        </div>
+        <div class="hero-opinion opinion-${hero.opinionClass}">${esc(hero.opinion)}</div>
+      </div>
+      <div class="hero-metrics">
+        ${metrics.map((m) => `<div class="metric"><span>${esc(m.label)}</span><strong>${esc(m.value)}</strong></div>`).join("")}
+      </div>
+      <div class="hero-footer">
+        <div>시스템 신호 ${signalBadge(hero.signal)}</div>
+        <div>신뢰도 ${hero.confidence != null ? (hero.confidence * 100).toFixed(0) + "%" : "—"}</div>
+        <div>품질 ${esc(hero.grade || "—")} · ${fmtNum(hero.score, 0)}점</div>
+      </div>
     </div>
-    ${list}
-    <h3 style="font-size:0.9rem;color:var(--muted);margin-top:1rem">enrichment (JSON)</h3>
-    <pre class="json-block">${esc(JSON.stringify(n, null, 2))}</pre>
-  `;
-}
 
-function renderContext(data) {
-  const ctx = data.context || {};
-  const ps = ctx.price_summary || {};
-  const val = ctx.valuation || {};
-  const fin = ctx.financials || {};
-  const tok = data.token_check || ctx._token_check || {};
-  const el = $("#panel-context");
-  el.innerHTML = `
-    <div class="cards">
-      <div class="card"><div class="label">1M 수익률</div><div class="value">${fmtNum(ps.returns?.return_1m)}%</div></div>
-      <div class="card"><div class="label">12M 수익률</div><div class="value">${fmtNum(ps.returns?.return_12m)}%</div></div>
-      <div class="card"><div class="label">변동성(연)</div><div class="value">${fmtNum(ps.vol_annual, 4)}</div></div>
-      <div class="card"><div class="label">EV/EBITDA</div><div class="value">${fmtNum(val.EV_EBITDA)}</div></div>
-      <div class="card"><div class="label">컨텍스트 토큰</div><div class="value">${tok.context_tokens ?? "—"}</div></div>
-      <div class="card"><div class="label">예산 내</div><div class="value">${tok.within_budget ? "✓" : "✗"}</div></div>
-    </div>
-    <h3 style="font-size:0.9rem;color:var(--muted)">분기 실적 추이</h3>
-    <pre class="json-block">${esc(JSON.stringify(fin.quarterly_trend || [], null, 2))}</pre>
-    <h3 style="font-size:0.9rem;color:var(--muted)">전체 context (JSON)</h3>
-    <pre class="json-block">${esc(JSON.stringify(ctx, null, 2))}</pre>
+    ${hero.catalyst ? `<div class="highlight-box"><span class="highlight-label">핵심 쟁점</span><p>${esc(hero.catalyst)}</p></div>` : ""}
+    ${hero.event ? `<div class="highlight-box warn"><span class="highlight-label">지금 봐야 할 이벤트</span><p>${esc(hero.event)}</p></div>` : ""}
+
+    ${thesis.length ? `<section class="block"><h3>핵심 근거</h3><ul class="clean-list">${thesis.slice(0, 5).map((t) => `<li>${esc(t)}</li>`).join("")}</ul></section>` : ""}
+    ${risks.length ? `<section class="block risk"><h3>리스크 트리거</h3><ul class="clean-list">${risks.slice(0, 5).map((t) => `<li>${esc(t)}</li>`).join("")}</ul></section>` : ""}
+    ${hero.conclusionBullets.length ? `<section class="block"><h3>한 줄 결론</h3><ul class="clean-list">${hero.conclusionBullets.map((t) => `<li>${esc(t)}</li>`).join("")}</ul></section>` : ""}
   `;
 }
 
 function renderReport(data) {
+  const hero = parseHero(data.report_md || "", data);
   const el = $("#panel-report");
-  el.innerHTML = `<div class="report-md">${renderMarkdown(data.report_md || "")}</div>`;
+  const cards = (hero.sections || []).map(renderSectionCard).filter(Boolean).join("");
+
+  el.innerHTML = cards
+    ? `<div class="section-grid">${cards}</div>`
+    : `<p class="muted-center">리포트 본문이 없습니다.</p>`;
 }
 
-function renderEval(data) {
+function renderNews(data) {
+  const n = data.news_enrichment || {};
+  const deep = n.deep_read_articles || [];
+  const articles = deep.length ? deep : n.company_relevant_articles || [];
+  const el = $("#panel-news");
+
+  if (!articles.length) {
+    el.innerHTML = `<p class="muted-center">관련 뉴스가 없습니다.</p>`;
+    return;
+  }
+
+  el.innerHTML = `<div class="news-grid">${articles
+    .slice(0, 6)
+    .map((a) => {
+      const title = a.title || a.headline || "(제목 없음)";
+      const bullets = a.summary_bullets;
+      const sum = Array.isArray(bullets) && bullets.length
+        ? bullets.map((b) => esc(b)).join(" ")
+        : esc((a.summary || a.digest || "").slice(0, 200));
+      const url = a.url || a.link || "";
+      return `<article class="news-card">
+        <h3>${esc(title)}</h3>
+        ${sum ? `<p>${sum}</p>` : ""}
+        ${url ? `<a href="${esc(url)}" target="_blank" rel="noopener">원문 보기 →</a>` : ""}
+      </article>`;
+    })
+    .join("")}</div>`;
+}
+
+function renderDetailsAccordion(title, contentHtml, open = false) {
+  return `<details class="accordion" ${open ? "open" : ""}>
+    <summary>${esc(title)}</summary>
+    <div class="accordion-body">${contentHtml}</div>
+  </details>`;
+}
+
+function renderDetails(data) {
+  const s = data.snapshot_summary || {};
+  const price = s.price || {};
+  const ctx = data.context || {};
   const ev = data.eval || {};
+  const sig = data.signal || {};
   const bd = ev.breakdown || {};
-  const flags = ev.flags || [];
-  const items = Object.entries(bd).map(([k, v]) => `<div class="score-item"><span>${esc(k)}</span><strong>${v}</strong></div>`).join("");
-  const el = $("#panel-eval");
+  const scoreItems = Object.entries(bd)
+    .map(([k, v]) => `<div class="score-item"><span>${esc(k)}</span><strong>${v}</strong></div>`)
+    .join("");
+
+  const hasChart = price.daily_close && Object.keys(price.daily_close).length > 1;
+  const rangeBtns = [3, 6, 12]
+    .map(
+      (m) =>
+        `<button type="button" class="range-btn${chartRangeMonths === m ? " active" : ""}" data-months="${m}">${m}M</button>`
+    )
+    .join("");
+
+  const el = $("#panel-details");
   el.innerHTML = `
-    <div class="cards">
-      <div class="card"><div class="label">총점</div><div class="value">${fmtNum(ev.total_score, 1)}</div></div>
-      <div class="card"><div class="label">100점 환산</div><div class="value">${fmtNum(ev.score_normalized_100, 1)}</div></div>
-      <div class="card"><div class="label">모드</div><div class="value" style="font-size:0.8rem">${esc(ev.rubric_mode)}</div></div>
-      <div class="card"><div class="label">등급</div><div class="value" style="font-size:0.8rem">${esc(ev.grade)}</div></div>
-    </div>
-    <h3 style="font-size:0.9rem;color:var(--muted)">항목별 breakdown</h3>
-    <div class="score-grid">${items || "<p>—</p>"}</div>
-    ${flags.length ? `<h3 style="font-size:0.9rem;color:var(--muted)">플래그</h3><ul class="bullets">${flags.map((f) => `<li>${esc(f)}</li>`).join("")}</ul>` : ""}
-    <p style="color:var(--muted);font-size:0.8rem;margin-top:0.75rem">${esc(ev.grade_note || "")}</p>
+    ${
+      hasChart
+        ? `<section class="chart-panel">
+      <div class="chart-header">
+        <div>
+          <h3 class="chart-title">${esc(data.ticker)} 주가</h3>
+          <p class="chart-sub" id="chart-stats">—</p>
+        </div>
+        <div class="range-group">${rangeBtns}</div>
+      </div>
+      <div id="price-chart" class="price-chart"></div>
+      <div id="chart-legend" class="chart-legend"></div>
+      <p class="chart-note">일봉 캔들 · 목표가·손절·컨센서스는 리포트·context 기준 참고선</p>
+    </section>`
+        : `<p class="muted-center">차트용 일봉 데이터가 없습니다.</p>`
+    }
+    ${renderDetailsAccordion(
+      "시장 데이터",
+      `<div class="mini-cards">
+        <div><span>52주</span><strong>${fmtNum(s.price?.["52w_low"])} – ${fmtNum(s.price?.["52w_high"])}</strong></div>
+        <div><span>PER</span><strong>${fmtNum(s.info?.trailingPE)}</strong></div>
+        <div><span>시총</span><strong>${s.info?.marketCap ? (s.info.marketCap / 1e9).toFixed(1) + "B" : "—"}</strong></div>
+      </div>`
+    )}
+    ${renderDetailsAccordion(
+      "평가 점수",
+      `<div class="score-grid">${scoreItems || "<p>—</p>"}</div>
+       <p class="grade-note">${esc(ev.grade_note || "")}</p>`
+    )}
+    ${renderDetailsAccordion("원본 JSON (snapshot)", `<pre class="json-block">${esc(JSON.stringify(s, null, 2))}</pre>`)}
+    ${renderDetailsAccordion("원본 JSON (context)", `<pre class="json-block">${esc(JSON.stringify(ctx, null, 2))}</pre>`)}
+    ${renderDetailsAccordion("원본 JSON (signal)", `<pre class="json-block">${esc(JSON.stringify(sig, null, 2))}</pre>`)}
   `;
+
+  _chartTicker = data.ticker;
+  _chartPrice = hasChart ? price : null;
+  _chartData = hasChart ? data : null;
+
+  if (hasChart) {
+    el.querySelectorAll(".range-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        chartRangeMonths = Number(btn.dataset.months);
+        el.querySelectorAll(".range-btn").forEach((b) => b.classList.toggle("active", b === btn));
+        mountPriceChart(_chartTicker, _chartPrice);
+      });
+    });
+    if ($("#panel-details")?.classList.contains("active")) {
+      requestAnimationFrame(() => mountPriceChart(_chartTicker, _chartPrice));
+    }
+  }
 }
 
-function renderSignal(data) {
-  const sig = data.signal || {};
-  const thesis = sig.thesis_bullets || [];
-  const risks = sig.risk_triggers || [];
-  const el = $("#panel-signal");
-  el.innerHTML = `
-    <div class="cards">
-      <div class="card"><div class="label">신호</div><div class="value">${signalBadge(sig.signal)}</div></div>
-      <div class="card"><div class="label">신뢰도</div><div class="value">${sig.confidence != null ? (sig.confidence * 100).toFixed(0) + "%" : "—"}</div></div>
-      <div class="card"><div class="label">기간</div><div class="value">${esc(sig.time_horizon)}</div></div>
-    </div>
-    <h3 style="font-size:0.9rem;color:var(--muted)">투자 논거 (thesis)</h3>
-    ${thesis.length ? `<ul class="bullets">${thesis.map((t) => `<li>${esc(t)}</li>`).join("")}</ul>` : "<p style='color:var(--muted)'>—</p>"}
-    <h3 style="font-size:0.9rem;color:var(--muted)">리스크 트리거</h3>
-    ${risks.length ? `<ul class="bullets">${risks.map((t) => `<li>${esc(t)}</li>`).join("")}</ul>` : "<p style='color:var(--muted)'>—</p>"}
-    <pre class="json-block">${esc(JSON.stringify(sig, null, 2))}</pre>
+function mountPriceChart(ticker, price) {
+  const container = $("#price-chart");
+  const stats = $("#chart-stats");
+  const legend = $("#chart-legend");
+  if (!container) return;
+
+  const levels = _chartData ? extractChartLevels(_chartData) : [];
+  const result = renderPriceChart(container, price, ticker, chartRangeMonths, levels);
+  if (!result || !stats) return;
+
+  const chg = result.changePct;
+  const chgClass = chg >= 0 ? "up" : "down";
+  const chgSign = chg >= 0 ? "+" : "";
+  stats.innerHTML = `
+    <strong>${fmtNum(result.last)}</strong>
+    <span class="chg ${chgClass}">${chgSign}${chg?.toFixed(2) ?? "—"}%</span>
+    <span class="muted-inline">· 52주 ${fmtNum(price["52w_low"])} – ${fmtNum(price["52w_high"])}</span>
   `;
+
+  if (legend) {
+    const shown = result.levels || [];
+    legend.innerHTML = shown.length
+      ? shown
+          .map(
+            (lv) =>
+              `<span class="legend-item"><i style="background:${lv.color}"></i>${esc(lv.label)} <strong>${fmtNum(lv.price)}</strong></span>`
+          )
+          .join("")
+      : `<span class="muted-inline">참고선 데이터 없음 (리포트·context 확인)</span>`;
+  }
 }
 
 function renderAll(data) {
   currentData = data;
+  destroyPriceChart();
   if (data.ticker && data.date) {
     history.replaceState(null, "", `#${data.ticker}/${data.date}`);
   }
   $("#empty").style.display = "none";
   $("#results").style.display = "block";
-  renderOverview(data);
-  renderData(data);
-  renderNews(data);
-  renderContext(data);
+  renderSummary(data);
   renderReport(data);
-  renderEval(data);
-  renderSignal(data);
+  renderNews(data);
+  renderDetails(data);
+  switchTab("summary");
 }
 
 function appendProgress(lines) {
@@ -242,7 +306,7 @@ async function loadHistory() {
   const list = $("#history");
   list.innerHTML = items.length
     ? items.map((it) => `<button type="button" class="history-item" data-ticker="${esc(it.ticker)}" data-date="${esc(it.date)}">${esc(it.ticker)} · ${esc(it.date)}</button>`).join("")
-    : "<p style='color:var(--muted);font-size:0.85rem'>저장된 실행 이력 없음</p>";
+    : "<p class='muted-small'>저장된 실행 이력 없음</p>";
   list.querySelectorAll(".history-item").forEach((btn) => {
     btn.addEventListener("click", async () => {
       const res = await fetch(`/api/runs/${btn.dataset.ticker}/${btn.dataset.date}`);
@@ -335,7 +399,6 @@ $("#copy-url")?.addEventListener("click", async () => {
   }
 });
 
-// URL hash로 티커/날짜 공유: #AAPL/2026-06-08
 async function loadFromHash() {
   const hash = location.hash.replace(/^#/, "").trim();
   if (!hash) return;
@@ -364,7 +427,7 @@ async function updateCacheHint() {
     const res = await fetch(url);
     const data = await res.json();
     if (data.complete) {
-      hint.textContent = `${data.ticker} · ${data.date}: 저장된 리포트가 있습니다. 재생성 없이 바로 불러옵니다.`;
+      hint.textContent = `${data.ticker} · ${data.date}: 저장된 리포트가 있습니다.`;
       hint.hidden = false;
     } else {
       hint.hidden = true;
@@ -378,7 +441,35 @@ $("#ticker")?.addEventListener("input", () => setTimeout(updateCacheHint, 300));
 $("#date")?.addEventListener("change", updateCacheHint);
 $("#force_refresh")?.addEventListener("change", updateCacheHint);
 
+async function loadVisitors() {
+  const box = $("#visitors");
+  if (!box) return;
+  try {
+    const res = await fetch("/api/visitors");
+    const data = await res.json();
+    const active = data.active || [];
+    if (!active.length) {
+      box.innerHTML = `<p class="muted-small">현재 접속자 없음 <span style="opacity:0.7">(최근 ${data.active_window_sec / 60}분 기준)</span></p>`;
+      return;
+    }
+    box.innerHTML = `
+      <p class="count">접속 중 약 ${data.active_count}명</p>
+      ${active
+        .map(
+          (v) =>
+            `<div class="visitor-row"><strong>${esc(v.ip)}</strong> · ${esc(v.user_agent)}<br><span>${v.seconds_ago}초 전 · ${esc(v.last_path)}</span></div>`
+        )
+        .join("")}
+      <p class="muted-small" style="margin-top:0.4rem">IP는 터널/프록시 기준일 수 있습니다.</p>
+    `;
+  } catch (_) {
+    box.innerHTML = `<p class="muted-small">접속 정보를 불러올 수 없습니다.</p>`;
+  }
+}
+
+setInterval(loadVisitors, 12000);
 buildTabs();
 loadHistory();
 loadInfo();
 loadFromHash();
+loadVisitors();

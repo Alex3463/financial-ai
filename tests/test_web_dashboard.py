@@ -31,3 +31,12 @@ def test_history_endpoint() -> None:
     data = client.get("/api/history").json()
     assert "items" in data
     assert isinstance(data["items"], list)
+
+
+def test_visitors_endpoint() -> None:
+    client = TestClient(app)
+    client.get("/api/health")
+    data = client.get("/api/visitors").json()
+    assert "active_count" in data
+    assert "active" in data
+    assert data["active_count"] >= 1
